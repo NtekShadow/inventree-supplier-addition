@@ -448,6 +448,17 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         return supplier_part
 
 
+class SupplierIntegrationPlugin(SupplierAdditionPlugin):
+    """Backward-compatible plugin identity for existing InvenTree installations."""
+
+    TITLE = "Supplier Integration"
+    NAME = "Supplier Integration"
+    SLUG = "supplierintegration"
+    DESCRIPTION = "Modular supplier addition and integration plugin for InvenTree"
+    VERSION = PLUGIN_VERSION
+
+
 # Compatibility aliases
 SupplierAddition = SupplierAdditionPlugin
-SupplierIntegrationPlugin = SupplierAdditionPlugin
+SupplierIntegration = SupplierIntegrationPlugin
+

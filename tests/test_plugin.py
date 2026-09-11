@@ -32,7 +32,15 @@ def test_plugin_metadata():
 
 def test_plugin_aliases():
     assert SupplierAddition is SupplierAdditionPlugin
-    assert SupplierIntegrationPlugin is SupplierAdditionPlugin
+    assert issubclass(SupplierIntegrationPlugin, SupplierAdditionPlugin)
+
+    integration_plugin = SupplierIntegrationPlugin()
+    assert integration_plugin.SLUG == "supplierintegration"
+    assert integration_plugin.NAME == "Supplier Integration"
+    assert "DOWNLOAD_IMAGES" in integration_plugin.SETTINGS
+    assert "SUPPLIER_LANDEFELD" in integration_plugin.SETTINGS
+    assert "SUPPLIER" in integration_plugin.SETTINGS
+
 
 
 def test_plugin_providers():
