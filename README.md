@@ -11,9 +11,8 @@ https://github.com/NtekShadow/inventree-supplier-addition.git
 Das Repository folgt dem InvenTree-Plugin-Format mit `setup.py` und einem
 Root-Einstiegspunkt `plugin.py`.
 
-Nach einer Aktualisierung muss InvenTree neu gestartet werden. Der bisherige
-Plugin-Slug bleibt erhalten, damit die bestehende Installation aktualisiert
-wird und kein zweiter Plugin-Eintrag entsteht.
+Nach der Installation muss InvenTree neu gestartet werden. Die alte
+Landefeld-Plugin-Installation kann vorher entfernt werden.
 
 ## Lieferanten hinzufuegen
 

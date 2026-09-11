@@ -14,8 +14,7 @@ class SupplierIntegrationPlugin(SupplierMixin, InvenTreePlugin):
     """InvenTree adapter for supplier providers."""
 
     NAME = 'Supplier Integration'
-    # Keep the original slug so InvenTree updates the existing installation.
-    SLUG = 'landefeldsupplier'
+    SLUG = 'supplierintegration'
     TITLE = 'Supplier Integration'
     VERSION = '0.1.0'
 
