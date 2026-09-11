@@ -9,7 +9,8 @@ https://github.com/NtekShadow/inventree-supplier-addition.git
 ```
 
 Das Repository folgt dem InvenTree-Plugin-Format mit `setup.py` und einem
-Root-Einstiegspunkt `plugin.py`.
+Root-Einstiegspunkt `plugin.py`. Es verwendet bewusst kein `pyproject.toml`,
+damit die Installation auch mit einem eingeschraenkten Paketindex funktioniert.
 
 Nach der Installation muss InvenTree neu gestartet werden. Die alte
 Landefeld-Plugin-Installation kann vorher entfernt werden.
