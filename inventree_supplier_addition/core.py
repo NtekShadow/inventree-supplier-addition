@@ -36,6 +36,9 @@ except ImportError:
         class PartNotFoundError(Exception):
             pass
 
+        class PartImportError(Exception):
+            pass
+
     supplier = _MockSupplier()  # type: ignore
 
     class InvenTreePlugin:  # type: ignore
@@ -46,6 +49,10 @@ except ImportError:
 
     class SettingsMixin:  # type: ignore
         pass
+
+import logging
+
+logger = logging.getLogger("inventree")
 
 from . import PLUGIN_VERSION
 from .models import SupplierProduct, SupplierProvider
@@ -68,12 +75,19 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
     LICENSE = "MIT"
 
     SETTINGS = {
+        "SUPPLIER": {
+            "name": "Default Supplier",
+            "description": "Optional default InvenTree supplier company (auto-created if not set)",
+            "model": "company.company",
+            "model_filters": {"is_supplier": True},
+            "required": False,
+        },
         "DOWNLOAD_IMAGES": {
             "name": "Download part images",
             "description": "Enable downloading of part images during import",
             "validator": bool,
             "default": False,
-        }
+        },
     }
 
     def __init__(self):
@@ -81,6 +95,9 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         self.providers: dict[str, SupplierProvider] = {
             "landefeld": LandefeldProvider(),
         }
+        # Mark SUPPLIER as optional in UI because we provide an automatic fallback
+        if hasattr(self, "SETTINGS") and "SUPPLIER" in self.SETTINGS:
+            self.SETTINGS["SUPPLIER"]["required"] = False
 
     def register_provider(self, provider: SupplierProvider) -> None:
         """Register a new supplier provider."""
@@ -91,6 +108,99 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             return self.providers[supplier_slug]
         except KeyError as error:
             raise ValueError(f"Unknown supplier: {supplier_slug}") from error
+
+    def _get_or_create_company(
+        self,
+        name: str,
+        is_supplier: bool = False,
+        is_manufacturer: bool = False,
+        website: str = "",
+    ):
+        """Safely get or create a Company by name in InvenTree."""
+        if Company is None:
+            return None
+
+        company_obj = Company.objects.filter(name__iexact=name).first()
+        if company_obj:
+            updated = False
+            if is_supplier and not company_obj.is_supplier:
+                company_obj.is_supplier = True
+                updated = True
+            if is_manufacturer and not company_obj.is_manufacturer:
+                company_obj.is_manufacturer = True
+                updated = True
+            if website and not getattr(company_obj, "website", None):
+                company_obj.website = website
+                updated = True
+            if updated:
+                company_obj.save()
+            return company_obj
+
+        return Company.objects.create(
+            name=name,
+            is_supplier=is_supplier,
+            is_manufacturer=is_manufacturer,
+            website=website,
+        )
+
+    @property
+    def supplier_company(self):
+        """Return the supplier company object.
+
+        If the 'SUPPLIER' setting is configured in InvenTree, return that company.
+        Otherwise, automatically find or create 'Landefeld' as a default supplier company
+        to prevent 'Supplier setting is missing' errors.
+        """
+        get_setting_func = getattr(self, "get_setting", None)
+        if callable(get_setting_func):
+            try:
+                pk = get_setting_func("SUPPLIER", cache=True)
+                if pk and Company is not None:
+                    return Company.objects.get(pk=pk)
+            except (AttributeError, KeyError, ValueError):
+                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to retrieve configured supplier company: %s", exc)
+
+        # Automatic fallback: find or create Landefeld company
+        company_obj = self._get_or_create_company(
+            name="Landefeld",
+            is_supplier=True,
+            website="https://www.landefeld.de",
+        )
+        if company_obj is not None:
+            return company_obj
+
+        raise supplier.PartImportError("Supplier setting is missing.")
+
+    def get_supplier_company_for_product(self, data: SupplierProduct):
+        """Get or create the supplier company for a specific product."""
+        # 1. If user configured a specific supplier in plugin settings, use it
+        get_setting_func = getattr(self, "get_setting", None)
+        if callable(get_setting_func):
+            try:
+                pk = get_setting_func("SUPPLIER", cache=True)
+                if pk and Company is not None:
+                    return Company.objects.get(pk=pk)
+            except (AttributeError, KeyError, ValueError):
+                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to retrieve configured supplier company: %s", exc)
+
+        # 2. Check if product brand matches a known supplier, otherwise fallback to Landefeld
+        supplier_name = "Landefeld"
+        if data.brand and data.brand.lower() == "landefeld":
+            supplier_name = "Landefeld"
+
+        company_obj = self._get_or_create_company(
+            name=supplier_name,
+            is_supplier=True,
+            website="https://www.landefeld.de" if supplier_name == "Landefeld" else "",
+        )
+        if company_obj is not None:
+            return company_obj
+
+        return self.supplier_company
 
     def get_suppliers(self) -> list[supplier.Supplier]:
         """Return a list of available suppliers."""
@@ -178,13 +288,10 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def import_manufacturer_part(self, data: SupplierProduct, **kwargs):
         """Import or update manufacturer part model in InvenTree."""
-        manufacturer, _ = Company.objects.get_or_create(
-            name__iexact=data.brand,
-            defaults={
-                "is_manufacturer": True,
-                "is_supplier": False,
-                "name": data.brand,
-            },
+        brand_name = data.brand or "Landefeld"
+        manufacturer = self._get_or_create_company(
+            name=brand_name,
+            is_manufacturer=True,
         )
         manufacturer_part, _ = ManufacturerPart.objects.get_or_create(
             MPN=data.sku, manufacturer=manufacturer, **kwargs
@@ -193,9 +300,10 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def import_supplier_part(self, data: SupplierProduct, **kwargs):
         """Import or update supplier part and pricing breaks in InvenTree."""
+        supplier_comp = self.get_supplier_company_for_product(data)
         supplier_part, _ = SupplierPart.objects.get_or_create(
             SKU=data.sku,
-            supplier=self.supplier_company,
+            supplier=supplier_comp,
             **kwargs,
             defaults={"link": data.link},
         )

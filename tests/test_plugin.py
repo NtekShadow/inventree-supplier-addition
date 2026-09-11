@@ -119,3 +119,42 @@ def test_search_results_flow():
     assert res.exact is True
     assert res.price == "5.00 EUR"
     assert res.link == "https://mock.com/1"
+
+
+def test_supplier_company_fallback_mocked():
+    from unittest.mock import MagicMock
+    import inventree_supplier_addition.core as core
+
+    plugin = SupplierAdditionPlugin()
+
+    # Mock Company model
+    mock_company_class = MagicMock()
+    mock_company_class.objects.filter.return_value.first.return_value = None
+    mock_landefeld = MagicMock()
+    mock_landefeld.name = "Landefeld"
+    mock_landefeld.is_supplier = True
+    mock_company_class.objects.create.return_value = mock_landefeld
+
+    orig_company = core.Company
+    try:
+        core.Company = mock_company_class
+        # Test fallback when get_setting returns None
+        plugin.get_setting = MagicMock(return_value=None)
+        company = plugin.supplier_company
+        assert company.name == "Landefeld"
+        mock_company_class.objects.create.assert_called_once_with(
+            name="Landefeld",
+            is_supplier=True,
+            is_manufacturer=False,
+            website="https://www.landefeld.de",
+        )
+
+        # Test when get_setting is configured with PK
+        mock_configured = MagicMock()
+        mock_configured.name = "Configured Supplier"
+        mock_company_class.objects.get.return_value = mock_configured
+        plugin.get_setting = MagicMock(return_value=42)
+        assert plugin.supplier_company.name == "Configured Supplier"
+        mock_company_class.objects.get.assert_called_with(pk=42)
+    finally:
+        core.Company = orig_company

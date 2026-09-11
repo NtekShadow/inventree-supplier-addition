@@ -47,7 +47,11 @@ In den Plugin-Einstellungen im InvenTree Admin Center stehen folgende Optionen z
 
 | Einstellung | Typ | Standard | Beschreibung |
 |---|---|---|---|
+| `SUPPLIER` | Company (Supplier) | *(Automatisch)* | Standard-Lieferant in InvenTree. Wenn nicht gesetzt, wird der Lieferant (z. B. Landefeld) automatisch angelegt/zugeordnet, um `Supplier setting is missing`-Fehler zu verhindern. |
 | `DOWNLOAD_IMAGES` | Boolean | `False` | Ermöglicht das automatische Herunterladen von Bauteilbildern beim Import |
+
+> **Hinweis zur Lieferanten-Zuordnung:**  
+> InvenTrees `SupplierMixin` erwartet standardmäßig eine Lieferanten-Firma in den Plugin-Einstellungen. Dieses Plugin hinterlegt automatisch einen Fallback (z. B. auf die Firma **Landefeld**), falls kein bestimmter Lieferant in den Plugin-Einstellungen hinterlegt wurde.
 
 ---
 
