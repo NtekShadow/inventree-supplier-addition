@@ -7,9 +7,16 @@ from setuptools import find_packages, setup
 
 def detect_package_name():
     """Dynamically match the package name expected by pip or plugins.txt."""
-    # 1. Inspect caller/parent process command line arguments
-    pid = os.getpid()
-    for _ in range(6):
+    # 1. Check current directory name (pip clones git repos to <pkg_name>_<hash>)
+    curr_dir = Path(__file__).resolve().parent.name
+    if "inventree-supplier-integration" in curr_dir:
+        return "inventree-supplier-integration"
+    if "inventree-supplier-addition" in curr_dir:
+        return "inventree-supplier-addition"
+
+    # 2. Inspect caller/parent process command line arguments
+    pid = os.getppid()
+    for _ in range(8):
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as f:
                 cmd = f.read().decode("utf-8", errors="ignore")
@@ -25,9 +32,11 @@ def detect_package_name():
         except Exception:
             break
 
-    # 2. Check InvenTree plugins.txt file if present
+    # 3. Check InvenTree plugins.txt file if present
     for path in [
         "/home/inventree/data/plugins.txt",
+        "/data/plugins.txt",
+        "/var/lib/inventree/plugins.txt",
         os.environ.get("INVENTREE_PLUGIN_FILE", ""),
     ]:
         if path and os.path.exists(path):
