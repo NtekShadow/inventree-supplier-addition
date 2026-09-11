@@ -2,7 +2,8 @@ from django.conf import settings
 
 from company.models import Company, ManufacturerPart, SupplierPart, SupplierPriceBreak
 from part.models import Part
-from plugin.mixins import SupplierMixin, supplier
+from plugin.base.supplier import helpers as supplier
+from plugin.base.supplier.mixins import SupplierMixin
 from plugin.plugin import InvenTreePlugin
 
 from supplier_models import SupplierProvider
