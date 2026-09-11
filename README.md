@@ -8,6 +8,13 @@ Installation in InvenTree:
 https://github.com/NtekShadow/inventree-supplier-addition.git
 ```
 
+Im InvenTree-Formular den Paketnamen separat eintragen:
+
+```text
+Paketname: inventree-supplier-integration
+URL: git+https://github.com/NtekShadow/inventree-supplier-addition.git
+```
+
 Das Repository folgt dem InvenTree-Plugin-Format mit `setup.py` und einem
 Root-Einstiegspunkt `plugin.py`. Es verwendet bewusst kein `pyproject.toml`,
 damit die Installation auch mit einem eingeschraenkten Paketindex funktioniert.

@@ -14,4 +14,9 @@ setup(
     py_modules=['plugin', 'supplier_models'],
     packages=find_packages(),
     install_requires=['requests'],
+    entry_points={
+        'inventree_plugins': [
+            'SupplierIntegrationPlugin = plugin:SupplierIntegrationPlugin',
+        ],
+    },
 )
