@@ -38,6 +38,8 @@ SupplierIntegrationPlugin = "inventree_supplier_addition.core:SupplierAdditionPl
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["inventree_supplier_addition*"]
+exclude = ["tests*", "*__pycache__*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "inventree_supplier_addition.PLUGIN_VERSION"}

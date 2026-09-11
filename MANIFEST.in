@@ -1,3 +1,5 @@
 include LICENSE
 include README.md
 recursive-include inventree_supplier_addition *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
