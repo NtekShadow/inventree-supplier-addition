@@ -159,7 +159,7 @@ def test_search_exact_redirect():
         assert len(results) == 1
         prod = results[0]
         assert prod.sku == "GN 300-30-M3-SW"
-        assert prod.name == "GN 300 Verstellbare Klemmhebel"
+        assert prod.name == "GN 300-30-M3-SW Verstellbare Klemmhebel"
         assert prod.price == {1: (3.88, "EUR")}
         assert prod.parameters["Gewicht"] == "0,026 kg"
         assert prod.parameters["Norm"] == "GN 300"
@@ -192,3 +192,121 @@ def test_get_product_from_cache_or_lookup():
         pytest.raises(LookupError),
     ):
         provider.get_product("NONEXISTENT-999")
+
+
+def test_parse_config_dimensions_and_mapping():
+    from bs4 import BeautifulSoup
+
+    provider = GanterProvider()
+
+    html = """
+    <div id="product-dimensions">
+        <fieldset>
+            <legend>Grifflänge l 1</legend>
+            <label>22</label>
+            <label>30</label>
+            <label>63</label>
+        </fieldset>
+        <fieldset>
+            <legend>Anschlussgewinde d 1</legend>
+            <label>M 3</label>
+            <label>M 6</label>
+            <label>M 8</label>
+        </fieldset>
+        <fieldset>
+            <legend>Farbe</legend>
+            <label>CR - verchromt</label>
+            <label>SW - schwarz, RAL 9005, strukturmatt</label>
+        </fieldset>
+        <fieldset>
+            <legend>Ausführungen</legend>
+            <label>GN 300 Verstellbare Klemmhebel</label>
+        </fieldset>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    dims = provider._parse_config_dimensions(soup)
+    assert "Grifflänge" in dims
+    assert "Anschlussgewinde" in dims
+    assert "Farbe" in dims
+    assert "Ausführungen" not in dims
+    assert dims["Grifflänge"] == ["22", "30", "63"]
+
+    params = provider._map_sku_to_parameters("GN 300-63-M8-SW", dims)
+    assert params["Norm"] == "GN 300"
+    assert params["Grifflänge"] == "63 mm"
+    assert params["Anschlussgewinde"] == "M 8"
+    assert params["Farbe"] == "SW - schwarz, RAL 9005, strukturmatt"
+
+
+def test_search_variants_by_tokens():
+    provider = GanterProvider()
+
+    mock_qf = MagicMock()
+    mock_qf.status_code = 200
+    mock_qf.json.return_value = [
+        {
+            "norm": "GN 300 Verstellbare Klemmhebel, Zink-Druckguss",
+            "url": "/de/produkte/gn300",
+        }
+    ]
+
+    mock_page = MagicMock()
+    mock_page.status_code = 200
+    mock_page.text = """
+    <html>
+        <h1>GN 300 Verstellbare Klemmhebel</h1>
+        <div id="product-dimensions">
+            <fieldset>
+                <legend>Grifflänge l 1</legend>
+                <label>45</label>
+                <label>63</label>
+            </fieldset>
+            <fieldset>
+                <legend>Anschlussgewinde d 1</legend>
+                <label>M 6</label>
+                <label>M 8</label>
+            </fieldset>
+            <fieldset>
+                <legend>Farbe</legend>
+                <label>SW - schwarz</label>
+                <label>RS - rot</label>
+            </fieldset>
+        </div>
+        <div>
+            <span style="display:none">GN 300-45-M6-SW</span>
+            <span style="display:none">GN 300-63-M8-SW</span>
+            <span style="display:none">GN 300-63-M8-RS</span>
+            <span style="display:none">GN 300-63-M8-20-SW</span>
+        </div>
+    </html>
+    """
+
+    mock_suche = MagicMock()
+    mock_suche.status_code = 200  # no redirect
+
+    def mock_get(url, **kwargs):
+        if "schnell-suche" in url:
+            return mock_suche
+        if "quickfinder" in url:
+            return mock_qf
+        if "gn300" in url:
+            return mock_page
+        raise ValueError(f"Unexpected URL: {url}")
+
+    with patch.object(provider.session, "get", side_effect=mock_get):
+        # Query matching M8 variants
+        results = provider.search("GN 300 M8")
+        assert len(results) == 3
+        skus = [r.sku for r in results]
+        assert "GN 300-63-M8-SW" in skus
+        assert "GN 300-63-M8-RS" in skus
+        assert "GN 300-63-M8-20-SW" in skus
+        assert "GN 300-45-M6-SW" not in skus
+
+        # Check parameter mapping on result
+        m8_sw = next(r for r in results if r.sku == "GN 300-63-M8-SW")
+        assert m8_sw.parameters["Grifflänge"] == "63 mm"
+        assert m8_sw.parameters["Anschlussgewinde"] == "M 8"
+        assert m8_sw.parameters["Farbe"] == "SW - schwarz"
+

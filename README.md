@@ -14,6 +14,10 @@ Dieses Plugin trennt die InvenTree-Anbindung von den APIs einzelner Bauteilliefe
 Bereits integrierte Lieferanten:
 - **Landefeld** (`LandefeldProvider`)
 - **Ganter Norm** (`GanterProvider`)
+  - Unterstützt Normsuche (z. B. `GN 300`, `DIN 508`)
+  - Unterstützt konfigurierte Variantensuche direkt im InvenTree-Suchfeld (z. B. `GN 300 M8`, `GN 300 63 M8 SW`, `DIN 508 14 M12`, `GN 717 5 M8`)
+  - Parst technische Parameter aus der Artikelauswahl (Grifflänge, Gewinde, Nutbreite, Werkstoff, Farbe usw.)
+  - Ruft tagesaktuelle Nettopreise, Gewichte, Zolltarifnummern und Lieferverfügbarkeiten ab
 
 ---
 
