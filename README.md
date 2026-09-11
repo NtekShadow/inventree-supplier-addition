@@ -13,6 +13,7 @@ Dieses Plugin trennt die InvenTree-Anbindung von den APIs einzelner Bauteilliefe
 
 Bereits integrierte Lieferanten:
 - **Landefeld** (`LandefeldProvider`)
+- **Ganter Norm** (`GanterProvider`)
 
 ---
 
@@ -49,10 +50,11 @@ In den Plugin-Einstellungen im InvenTree Admin Center stehen folgende Optionen z
 |---|---|---|---|
 | `DOWNLOAD_IMAGES` | Boolean | `False` | Ermöglicht das automatische Herunterladen von Bauteilbildern beim Import |
 | `SUPPLIER_LANDEFELD` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für Landefeld-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
+| `SUPPLIER_GANTER` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für Ganter-Norm-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
 | `SUPPLIER` | Company (Supplier) | *(Automatisch)* | Optionaler globaler Fallback-Lieferant, falls kein anbieterspezifisches Setting konfiguriert ist. |
 
 > **Modulares Multi-Lieferanten-Management:**  
-> Das Plugin unterstützt beliebig viele Lieferanten gleichzeitig. Für jeden registrierten Provider (z. B. Landefeld) wird automatisch ein eigenes Setting `SUPPLIER_<SLUG>` bereitgestellt, über das der InvenTree-Benutzer die gewünschte `Company` auswählen kann.
+> Das Plugin unterstützt beliebig viele Lieferanten gleichzeitig. Für jeden registrierten Provider (z. B. Landefeld, Ganter Norm) wird automatisch ein eigenes Setting `SUPPLIER_<SLUG>` bereitgestellt, über das der InvenTree-Benutzer die gewünschte `Company` auswählen kann.
 > Ist kein Setting gesetzt, sucht das Plugin in InvenTree nach einer existierenden Firma mit passendem Namen oder legt sie automatisch mit `is_supplier=True` an.
 
 ---
@@ -70,9 +72,11 @@ inventree-supplier-addition/
 │   ├── supplier_models.py    # Kompatibilitäts-Alias
 │   └── suppliers/
 │       ├── __init__.py
+│       ├── ganter.py         # Ganter Norm Provider-Implementierung
 │       └── landefeld.py      # Landefeld Provider-Implementierung
 ├── tests/
-│   ├── test_landefeld.py     # Tests für den Provider
+│   ├── test_ganter.py        # Tests für Ganter Norm
+│   ├── test_landefeld.py     # Tests für Landefeld
 │   └── test_plugin.py        # Tests für das Plugin
 ├── .github/workflows/
 │   ├── ci.yaml               # CI-Pipeline (Ruff, Pytest, Build)

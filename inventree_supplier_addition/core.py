@@ -6,7 +6,12 @@ except ImportError:
     settings = None
 
 try:
-    from company.models import Company, ManufacturerPart, SupplierPart, SupplierPriceBreak
+    from company.models import (
+        Company,
+        ManufacturerPart,
+        SupplierPart,
+        SupplierPriceBreak,
+    )
 except ImportError:
     Company = None
     ManufacturerPart = None
@@ -70,12 +75,13 @@ except ImportError:
         pass
 
 import logging
+from typing import Any, ClassVar
 
 logger = logging.getLogger("inventree")
 
 from . import PLUGIN_VERSION
 from .models import SupplierProduct, SupplierProvider
-from .suppliers import LandefeldProvider
+from .suppliers import GanterProvider, LandefeldProvider
 
 
 class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
@@ -93,7 +99,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
     WEBSITE = "https://github.com/NtekShadow/inventree-supplier-addition"
     LICENSE = "MIT"
 
-    SETTINGS = {
+    SETTINGS: ClassVar[dict[str, Any]] = {
         "DOWNLOAD_IMAGES": {
             "name": "Download part images",
             "description": "Enable downloading of part images during import",
@@ -103,6 +109,13 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         "SUPPLIER_LANDEFELD": {
             "name": "Supplier (Landefeld)",
             "description": "InvenTree supplier company for Landefeld parts",
+            "model": "company.company",
+            "model_filters": {"is_supplier": True},
+            "required": False,
+        },
+        "SUPPLIER_GANTER": {
+            "name": "Supplier (Ganter Norm)",
+            "description": "InvenTree supplier company for Ganter Norm parts",
             "model": "company.company",
             "model_filters": {"is_supplier": True},
             "required": False,
@@ -130,6 +143,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
         # Register default providers (this also registers provider-specific settings)
         self.register_provider(LandefeldProvider())
+        self.register_provider(GanterProvider())
 
         # If SupplierMixin.__init__ forced SUPPLIER to required: True, relax it
         if "SUPPLIER" in self.settings:
@@ -160,8 +174,11 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             self.SETTINGS.setdefault(setting_key, setting_def)
 
     def _get_provider(self, supplier_slug: str) -> SupplierProvider:
+        normalized_slug = supplier_slug.lower().replace("_", "-")
+        if normalized_slug in ("ganter", "ganternorm", "ganter-norm"):
+            normalized_slug = "ganter"
         try:
-            return self.providers[supplier_slug]
+            return self.providers[normalized_slug]
         except KeyError as error:
             raise ValueError(f"Unknown supplier: {supplier_slug}") from error
 
@@ -211,6 +228,11 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         if not supplier_slug and self.providers:
             supplier_slug = next(iter(self.providers.keys()))
 
+        if supplier_slug:
+            norm_slug = supplier_slug.lower().replace("_", "-")
+            if norm_slug in ("ganter", "ganternorm", "ganter-norm"):
+                supplier_slug = "ganter"
+
         provider = self.providers.get(supplier_slug) if supplier_slug else None
 
         if not supplier_name and provider:
@@ -225,12 +247,14 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             )
         if not website and supplier_name.lower() == "landefeld":
             website = "https://www.landefeld.de"
+        if not website and "ganter" in supplier_name.lower():
+            website = "https://www.ganternorm.com"
 
         get_setting_func = getattr(self, "get_setting", None)
 
-        # 1. Check provider-specific setting (e.g. SUPPLIER_LANDEFELD)
+        # 1. Check provider-specific setting (e.g. SUPPLIER_LANDEFELD, SUPPLIER_GANTER)
         if callable(get_setting_func) and supplier_slug:
-            setting_key = f"SUPPLIER_{supplier_slug.upper()}"
+            setting_key = f"SUPPLIER_{supplier_slug.upper().replace('-', '_')}"
             try:
                 pk = get_setting_func(setting_key, cache=True)
                 if pk and Company is not None:
@@ -253,15 +277,24 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
         # 3. Lookup existing company by name
         if Company is not None:
-            try:
-                company_obj = Company.objects.filter(name__iexact=supplier_name).first()
-                if company_obj:
-                    if not company_obj.is_supplier:
-                        company_obj.is_supplier = True
-                        company_obj.save()
-                    return company_obj
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Failed to query company by name %s: %s", supplier_name, exc)
+            candidate_names = [supplier_name]
+            if "ganter" in supplier_name.lower():
+                candidate_names.extend([
+                    "Ganter Norm",
+                    "Otto Ganter GmbH & Co. KG",
+                    "Otto Ganter",
+                    "Ganter",
+                ])
+            for c_name in candidate_names:
+                try:
+                    company_obj = Company.objects.filter(name__iexact=c_name).first()
+                    if company_obj:
+                        if not company_obj.is_supplier:
+                            company_obj.is_supplier = True
+                            company_obj.save()
+                        return company_obj
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to query company by name %s: %s", c_name, exc)
 
         # 4. Safely auto-create company
         try:
@@ -416,7 +449,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def import_manufacturer_part(self, data: SupplierProduct, **kwargs):
         """Import or update manufacturer part model in InvenTree."""
-        brand_name = data.brand or "Landefeld"
+        brand_name = data.brand or getattr(data, "supplier_name", "") or "Landefeld"
         manufacturer = self._get_or_create_company(
             name=brand_name,
             is_manufacturer=True,

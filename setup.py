@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+
 from setuptools import find_packages, setup
 
 
@@ -34,7 +35,7 @@ def detect_package_name():
                     if "inventree-supplier-addition" in curr_dir:
                         return "inventree-supplier-addition"
                     return "inventree-supplier-integration"
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
 
     # 2. Check current directory name (pip clones git repos to <pkg_name>_<hash>)
@@ -59,7 +60,7 @@ def detect_package_name():
                     if line.startswith("PPid:"):
                         pid = int(line.split()[1])
                         break
-        except Exception:
+        except Exception:  # noqa: BLE001
             break
 
     return "inventree-supplier-addition"
@@ -86,7 +87,7 @@ setup(
     license="MIT",
     packages=find_packages(exclude=["tests*"]),
     py_modules=py_modules,
-    install_requires=["requests"],
+    install_requires=["requests", "beautifulsoup4"],
     python_requires=">=3.9",
     entry_points={
         "inventree_plugins": [

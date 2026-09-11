@@ -1,6 +1,7 @@
 """Unit tests for Landefeld provider and models."""
 
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from inventree_supplier_addition.models import SupplierProduct

@@ -1,6 +1,7 @@
 """Unit tests for SupplierAdditionPlugin."""
 
 from unittest.mock import MagicMock
+
 import pytest
 
 from inventree_supplier_addition.core import (
@@ -8,7 +9,7 @@ from inventree_supplier_addition.core import (
     SupplierAdditionPlugin,
     SupplierIntegrationPlugin,
 )
-from inventree_supplier_addition.models import SupplierProduct, SupplierProvider
+from inventree_supplier_addition.models import SupplierProduct
 
 
 def test_plugin_metadata():
@@ -22,11 +23,14 @@ def test_plugin_metadata():
     assert plugin.SETTINGS["DOWNLOAD_IMAGES"]["default"] is False
     assert "SUPPLIER_LANDEFELD" in plugin.SETTINGS
     assert plugin.SETTINGS["SUPPLIER_LANDEFELD"]["model"] == "company.company"
+    assert "SUPPLIER_GANTER" in plugin.SETTINGS
+    assert plugin.SETTINGS["SUPPLIER_GANTER"]["model"] == "company.company"
     assert "SUPPLIER" in plugin.SETTINGS
     assert plugin.SETTINGS["SUPPLIER"]["required"] is False
     # Ensure instance settings are populated
     assert "DOWNLOAD_IMAGES" in plugin.settings
     assert "SUPPLIER_LANDEFELD" in plugin.settings
+    assert "SUPPLIER_GANTER" in plugin.settings
     assert "SUPPLIER" in plugin.settings
 
 
@@ -39,6 +43,7 @@ def test_plugin_aliases():
     assert integration_plugin.NAME == "Supplier Integration"
     assert "DOWNLOAD_IMAGES" in integration_plugin.SETTINGS
     assert "SUPPLIER_LANDEFELD" in integration_plugin.SETTINGS
+    assert "SUPPLIER_GANTER" in integration_plugin.SETTINGS
     assert "SUPPLIER" in integration_plugin.SETTINGS
 
 
@@ -48,9 +53,17 @@ def test_plugin_providers():
     suppliers = plugin.get_suppliers()
     slugs = [s.slug for s in suppliers]
     assert "landefeld" in slugs
+    assert "ganter" in slugs
 
-    provider = plugin._get_provider("landefeld")
-    assert provider.name == "Landefeld"
+    provider_landefeld = plugin._get_provider("landefeld")
+    assert provider_landefeld.name == "Landefeld"
+
+    provider_ganter = plugin._get_provider("ganter")
+    assert provider_ganter.name == "Ganter Norm"
+
+    # Test slug aliases for Ganter
+    assert plugin._get_provider("ganternorm").name == "Ganter Norm"
+    assert plugin._get_provider("ganter-norm").name == "Ganter Norm"
 
     with pytest.raises(ValueError, match="Unknown supplier: nonexistent"):
         plugin._get_provider("nonexistent")
@@ -139,7 +152,8 @@ def test_search_results_flow():
 
 def test_supplier_company_fallback_mocked():
     from unittest.mock import MagicMock
-    import inventree_supplier_addition.core as core
+
+    from inventree_supplier_addition import core
 
     plugin = SupplierAdditionPlugin()
 
@@ -178,7 +192,8 @@ def test_supplier_company_fallback_mocked():
 
 def test_multi_supplier_automatic_company_resolution():
     from unittest.mock import MagicMock
-    import inventree_supplier_addition.core as core
+
+    from inventree_supplier_addition import core
 
     class MouserProvider:
         slug = "mouser"
@@ -261,16 +276,32 @@ def test_multi_supplier_automatic_company_resolution():
         assert landefeld_company.is_supplier is True
         assert landefeld_company.website == "https://www.landefeld.de"
 
-        # 3. Both distinct companies exist in database
+        # 3. Ganter Norm resolution
+        ganter_product = SupplierProduct(
+            sku="GN 300-30-M3-SW",
+            name="Klemmhebel",
+            description="",
+            price={1: (3.88, "EUR")},
+            supplier_name="Ganter Norm",
+            supplier_slug="ganter",
+        )
+        ganter_company = plugin.get_supplier_company_for_product(ganter_product)
+        assert ganter_company.name == "Ganter Norm"
+        assert ganter_company.is_supplier is True
+        assert ganter_company.website == "https://www.ganternorm.com"
+
+        # 4. Distinct companies exist in database
         assert "mouser electronics" in existing_companies
         assert "landefeld" in existing_companies
+        assert "ganter norm" in existing_companies
     finally:
         core.Company = orig_company
 
 
 def test_supplier_setting_override_and_extensibility():
     from unittest.mock import MagicMock
-    import inventree_supplier_addition.core as core
+
+    from inventree_supplier_addition import core
 
     plugin = SupplierAdditionPlugin()
 

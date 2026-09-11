@@ -16,6 +16,7 @@ jobs:
         run: |
           pip install -U ruff pytest
           pip install -U wheel setuptools twine build
+          pip install -e .
       - name: Style Checks
         run: |
           ruff check
