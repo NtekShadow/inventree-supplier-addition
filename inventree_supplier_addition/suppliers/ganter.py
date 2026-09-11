@@ -46,8 +46,29 @@ class GanterProvider:
         self._soup_cache: dict[str, BeautifulSoup] = {}
 
     def _clean_sku(self, sku: str) -> str:
-        """Strip whitespace and normalize SKU."""
-        return " ".join(sku.strip().split())
+        """Strip whitespace and normalize SKU, extracting clean norm identifier if input is overly long."""
+        cleaned = " ".join(str(sku).strip().split())
+        if len(cleaned) > 100:
+            m = re.search(r"((?:GN|DIN|ISO)\s*[\w\.\,\-\/]+)", cleaned, flags=re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+            return cleaned[:100].strip()
+        return cleaned
+
+    def _build_product_link(self, base_url: str, sku: str = "") -> str:
+        """Build clean canonical product link guaranteed to be <= 250 characters."""
+        clean_base = str(base_url).split("#")[0].strip()
+        if not clean_base.startswith("http"):
+            clean_base = urljoin(self.base_url, clean_base)
+
+        if not sku:
+            return clean_base[:250]
+
+        sku_clean = self._clean_sku(sku)
+        candidate = f"{clean_base}#{sku_clean}"
+        if len(candidate) <= 250:
+            return candidate
+        return clean_base[:250]
 
     def _strip_owner(self, sku: str) -> str:
         """Strip leading standard owner prefix (GN, DIN, ISO) for API queries."""
@@ -467,12 +488,12 @@ class GanterProvider:
         parameters.update(api_params)
 
         product = SupplierProduct(
-            sku=clean_sku,
-            name=name,
-            description=description,
+            sku=clean_sku[:100],
+            name=name[:100],
+            description=description[:250],
             price=price_dict,
-            link=f"{full_url}#{clean_sku}",
-            image_url=image_url,
+            link=self._build_product_link(full_url, clean_sku),
+            image_url=image_url[:250],
             brand="Ganter Norm",
             parameters=parameters,
             supplier_name=self.name,
@@ -562,12 +583,12 @@ class GanterProvider:
                 params = self._map_sku_to_parameters(var_sku, dim_options)
                 image_url = self._extract_image_url(soup, var_sku)
                 v_prod = SupplierProduct(
-                    sku=var_sku,
-                    name=f"{var_sku} {title}",
-                    description=desc,
+                    sku=var_sku[:100],
+                    name=f"{var_sku} {title}"[:100],
+                    description=desc[:250],
                     price={},
-                    link=f"{page_url}#{var_sku}",
-                    image_url=image_url,
+                    link=self._build_product_link(page_url, var_sku),
+                    image_url=image_url[:250],
                     brand="Ganter Norm",
                     parameters=params,
                     supplier_name=self.name,
@@ -632,12 +653,12 @@ class GanterProvider:
 
                 params = self._map_sku_to_parameters(var_sku, dim_options)
                 v_prod = SupplierProduct(
-                    sku=var_sku,
-                    name=f"{var_sku} {title}",
-                    description=desc,
+                    sku=var_sku[:100],
+                    name=f"{var_sku} {title}"[:100],
+                    description=desc[:250],
                     price={},
-                    link=f"{page_url}#{var_sku}",
-                    image_url=self._extract_image_url(soup, var_sku),
+                    link=self._build_product_link(page_url, var_sku),
+                    image_url=self._extract_image_url(soup, var_sku)[:250],
                     brand="Ganter Norm",
                     parameters=params,
                     supplier_name=self.name,
@@ -757,17 +778,17 @@ class GanterProvider:
                     counter_idx += 1
 
                 url_path = item.get("url", "")
-                link = urljoin(self.base_url, url_path) if url_path else ""
+                link = self._build_product_link(url_path)
                 thumb = item.get("urlHauptbildThumbnail", "")
                 image_url = thumb.split("?")[0].replace("-thumbnail.jpg", ".jpg") if thumb else ""
 
                 prod = SupplierProduct(
-                    sku=item_sku,
-                    name=item.get("norm", item_sku),
-                    description=desc,
+                    sku=item_sku[:100],
+                    name=item.get("norm", item_sku)[:100],
+                    description=desc[:250],
                     price={},
                     link=link,
-                    image_url=image_url,
+                    image_url=image_url[:250],
                     brand="Ganter Norm",
                     parameters={"Norm": code},
                     supplier_name=self.name,

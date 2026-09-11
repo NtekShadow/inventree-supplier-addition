@@ -349,3 +349,114 @@ def test_supplier_setting_override_and_extensibility():
         assert resolved.name == "Configured Landefeld"
     finally:
         core.Company = orig_company
+
+
+def test_sanitize_helpers():
+    from inventree_supplier_addition.core import sanitize_link, sanitize_string
+
+    assert sanitize_link("") == ""
+    assert sanitize_link(None) == ""
+    assert sanitize_link("not-a-url") == ""
+    assert sanitize_link("https://example.com/ok") == "https://example.com/ok"
+
+    # Link with fragment > 250 chars strips fragment
+    long_hash_link = "https://example.com/products/item#" + "x" * 300
+    cleaned = sanitize_link(long_hash_link, 250)
+    assert cleaned == "https://example.com/products/item"
+    assert len(cleaned) <= 250
+
+    # Link with 9124 chars
+    huge_link = "https://www.ganternorm.com/de/produkte/gn7802#" + "a" * 9100
+    cleaned_huge = sanitize_link(huge_link, 250)
+    assert len(cleaned_huge) <= 250
+    assert cleaned_huge == "https://www.ganternorm.com/de/produkte/gn7802"
+
+    # Extremely long base URL hard truncates to 250
+    huge_base = "https://example.com/" + "b" * 300
+    assert len(sanitize_link(huge_base, 250)) == 250
+
+    # sanitize_string
+    assert sanitize_string(None) == ""
+    assert sanitize_string("  hello   world  ") == "hello world"
+    long_desc = "A" * 300
+    sanitized_desc = sanitize_string(long_desc, 250)
+    assert len(sanitized_desc) <= 250
+    assert sanitized_desc.endswith("...")
+
+    long_sku = "SKU-" + "9" * 150
+    sanitized_sku = sanitize_string(long_sku, 100)
+    assert len(sanitized_sku) <= 100
+
+
+def test_import_part_and_supplier_part_sanitization():
+    from inventree_supplier_addition import core
+
+    plugin = SupplierAdditionPlugin()
+
+    huge_link = "https://www.ganternorm.com/de/produkte/gn7802#" + "a" * 9100
+    huge_desc = "D" * 1000
+    huge_sku = "GN 7802-" + "1" * 120
+
+    product = SupplierProduct(
+        sku=huge_sku,
+        name="Very long part name " + "N" * 200,
+        description=huge_desc,
+        price={1: (10.0, "EUR")},
+        link=huge_link,
+        image_url="https://example.com/img.jpg#" + "i" * 500,
+        supplier_name="Ganter Norm",
+        supplier_slug="ganter",
+    )
+
+    mock_part_class = MagicMock()
+    mock_part_instance = MagicMock()
+    mock_part_class.objects.get_or_create.return_value = (mock_part_instance, True)
+
+    mock_supp_part_class = MagicMock()
+    mock_supp_part_instance = MagicMock()
+    mock_supp_part_class.objects.get_or_create.return_value = (mock_supp_part_instance, True)
+
+    mock_price_break_class = MagicMock()
+
+    orig_part = core.Part
+    orig_sp = core.SupplierPart
+    orig_spb = core.SupplierPriceBreak
+    orig_comp = core.Company
+
+    try:
+        core.Part = mock_part_class
+        core.SupplierPart = mock_supp_part_class
+        core.SupplierPriceBreak = mock_price_break_class
+        mock_company = MagicMock()
+        mock_company.objects.filter.return_value.first.return_value = MagicMock(is_supplier=True)
+        core.Company = mock_company
+
+        # Test import_part
+        res_part = plugin.import_part(product, link=huge_link, description=huge_desc)
+        assert res_part == mock_part_instance
+
+        mock_part_class.objects.get_or_create.assert_called_once()
+        _, part_kwargs = mock_part_class.objects.get_or_create.call_args
+        defaults = part_kwargs.get("defaults", {})
+        assert len(defaults["name"]) <= 100
+        assert len(defaults["description"]) <= 250
+        assert len(defaults["link"]) <= 250
+        assert not defaults["link"].endswith("a" * 9100)
+
+        # Test import_supplier_part
+        res_sp = plugin.import_supplier_part(product, link=huge_link)
+        assert res_sp == mock_supp_part_instance
+
+        mock_supp_part_class.objects.get_or_create.assert_called_once()
+        _, sp_kwargs = mock_supp_part_class.objects.get_or_create.call_args
+        assert len(sp_kwargs.get("SKU", "")) <= 100
+        sp_defaults = sp_kwargs.get("defaults", {})
+        assert len(sp_defaults["link"]) <= 250
+        assert not sp_defaults["link"].endswith("a" * 9100)
+
+    finally:
+        core.Part = orig_part
+        core.SupplierPart = orig_sp
+        core.SupplierPriceBreak = orig_spb
+        core.Company = orig_comp
+

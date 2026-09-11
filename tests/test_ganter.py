@@ -384,3 +384,39 @@ def test_extract_variants_from_priority_table():
     assert "GN 7802-1,5-15-VDB" in variants
 
 
+def test_clean_sku_and_build_product_link():
+    provider = GanterProvider()
+
+    # Overly long SKU or pasted page text extracts clean norm
+    long_pasted_text = (
+        "VD\nNormblatt GN 7802\nDiese Seite drucken\nAllgemeine Hinweise zu Zahnrädern\n"
+        + "Stirnzahnräder GN 7802 aus Kunststoff bringen werkstoffbedingt... " * 10
+    )
+    cleaned = provider._clean_sku(long_pasted_text)
+    assert cleaned == "GN 7802"
+
+    # Standard clean
+    assert provider._clean_sku("  GN 7802-1,5-12-GR  ") == "GN 7802-1,5-12-GR"
+
+    # Build product link: keeps anchor if <= 250 chars
+    base_url = "https://www.ganternorm.com/de/produkte/gn7802"
+    link = provider._build_product_link(base_url, "GN 7802-1,5-12-GR")
+    assert link == "https://www.ganternorm.com/de/produkte/gn7802#GN 7802-1,5-12-GR"
+    assert len(link) <= 250
+
+    # Build product link: drops anchor if > 250 chars
+    sku_val = "GN 7802-1,5-12-GR"
+    long_base_url = "https://www.ganternorm.com/de/produkte/" + "x" * 210
+    assert len(long_base_url) + len(sku_val) + 1 > 250
+    long_link = provider._build_product_link(long_base_url, sku_val)
+    assert long_link == long_base_url[:250]
+    assert len(long_link) <= 250
+    assert "#" not in long_link
+
+    # 9124-char input
+    huge_sku = "GN 7802-" + "a" * 9100
+    huge_link = provider._build_product_link(base_url, huge_sku)
+    assert len(huge_link) <= 250
+
+
+

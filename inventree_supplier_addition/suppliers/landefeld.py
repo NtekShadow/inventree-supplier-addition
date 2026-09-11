@@ -75,14 +75,16 @@ class LandefeldProvider:
             link_path = article.get("SEO_URL_Artikel", "")
             image_path = article.get("HauptbildArtikel", "")
             is_original = article.get("ist_Originalteil") == 1
+            link = f"{self.base_url}{link_path}" if link_path else ""
+            image_url = f"{self.base_url}{image_path}" if image_path else ""
             products.append(
                 SupplierProduct(
-                    sku=sku,
-                    name=article.get("Bezeichnung", sku),
-                    description=article.get("Bezeichnung", "Keine Beschreibung verfügbar."),
+                    sku=str(sku)[:100],
+                    name=str(article.get("Bezeichnung", sku))[:100],
+                    description=str(article.get("Bezeichnung", "Keine Beschreibung verfügbar."))[:250],
                     price={1: (price, "EUR")},
-                    link=f"{self.base_url}{link_path}" if link_path else "",
-                    image_url=f"{self.base_url}{image_path}" if image_path else "",
+                    link=link[:250],
+                    image_url=image_url[:250],
                     brand="Festo/Originalteil" if is_original else "Landefeld",
                     parameters={
                         "Verpackungseinheit": str(article.get("VPE", "1.00")),

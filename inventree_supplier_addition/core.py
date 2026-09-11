@@ -84,6 +84,45 @@ from .models import SupplierProduct, SupplierProvider
 from .suppliers import GanterProvider, LandefeldProvider
 
 
+def sanitize_link(link: str | None, max_len: int = 250) -> str:
+    """Sanitize URL link to ensure valid HTTP/HTTPS and length <= max_len."""
+    if not link:
+        return ""
+    link_str = str(link).strip()
+    if not link_str.startswith(("http://", "https://")):
+        return ""
+    if len(link_str) <= max_len:
+        return link_str
+
+    # 1. Strip hash fragment if too long
+    if "#" in link_str:
+        base = link_str.split("#")[0].strip()
+        if len(base) <= max_len:
+            return base
+        link_str = base
+
+    # 2. Strip query parameters if too long
+    if "?" in link_str:
+        base = link_str.split("?")[0].strip()
+        if len(base) <= max_len:
+            return base
+        link_str = base
+
+    # 3. Hard truncate if still exceeding limit
+    return link_str[:max_len]
+
+
+def sanitize_string(val: str | None, max_len: int = 250) -> str:
+    """Sanitize string fields (e.g. name, description, SKU) to avoid Django validation errors."""
+    if not val:
+        return ""
+    val_str = " ".join(str(val).split()).strip()
+    if len(val_str) <= max_len:
+        return val_str
+    truncated = val_str[: max_len - 3].rstrip()
+    return f"{truncated}..."
+
+
 class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
     """Modular supplier addition and integration plugin for InvenTree."""
 
@@ -367,13 +406,13 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
             results.append(
                 supplier.SearchResult(
-                    sku=product.sku,
-                    name=product.name,
-                    description=product.description,
+                    sku=sanitize_string(product.sku, 100),
+                    name=sanitize_string(product.name, 100),
+                    description=sanitize_string(product.description, 250),
                     exact=product.sku.lower() == term.lower(),
                     price=self._format_price(product),
-                    link=product.link,
-                    image_url=product.image_url,
+                    link=sanitize_link(product.link, 250),
+                    image_url=sanitize_link(product.image_url, 250),
                     existing_part=existing_part,
                 )
             )
@@ -403,6 +442,12 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         if not getattr(product, "supplier_name", None):
             product.supplier_name = provider.name
 
+        product.sku = sanitize_string(product.sku, 100)
+        product.name = sanitize_string(product.name, 100)
+        product.description = sanitize_string(product.description, 250)
+        product.link = sanitize_link(product.link, 250)
+        product.image_url = sanitize_link(product.image_url, 250)
+
         return product
 
     def get_pricing_data(self, data: SupplierProduct) -> dict[int, tuple[float, str]]:
@@ -419,15 +464,29 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def import_part(self, data: SupplierProduct, **kwargs):
         """Import or update part model in InvenTree."""
+        clean_sku = sanitize_string(data.sku, 100)
+        clean_desc = sanitize_string(data.description, 250)
+        clean_link = sanitize_link(data.link, 250)
+
+        cleaned_kwargs = dict(kwargs)
+        if "link" in cleaned_kwargs:
+            cleaned_kwargs["link"] = sanitize_link(cleaned_kwargs["link"], 250)
+        if "description" in cleaned_kwargs:
+            cleaned_kwargs["description"] = sanitize_string(cleaned_kwargs["description"], 250)
+        if "name" in cleaned_kwargs:
+            cleaned_kwargs["name"] = sanitize_string(cleaned_kwargs["name"], 100)
+
+        defaults = {
+            "name": clean_sku,
+            "description": clean_desc,
+            "link": clean_link,
+            **cleaned_kwargs,
+        }
+
         part, created = Part.objects.get_or_create(
-            name__iexact=data.sku,
+            name__iexact=clean_sku,
             purchaseable=True,
-            defaults={
-                "name": data.sku,
-                "description": data.description,
-                "link": data.link,
-                **kwargs,
-            },
+            defaults=defaults,
         )
         download_setting = getattr(self, "get_setting", lambda _: False)("DOWNLOAD_IMAGES")
         if isinstance(download_setting, str):
@@ -449,24 +508,41 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def import_manufacturer_part(self, data: SupplierProduct, **kwargs):
         """Import or update manufacturer part model in InvenTree."""
-        brand_name = data.brand or getattr(data, "supplier_name", "") or "Landefeld"
+        clean_sku = sanitize_string(data.sku, 100)
+        brand_name = sanitize_string(data.brand or getattr(data, "supplier_name", "") or "Landefeld", 100)
         manufacturer = self._get_or_create_company(
             name=brand_name,
             is_manufacturer=True,
         )
+        cleaned_kwargs = dict(kwargs)
+        if "link" in cleaned_kwargs:
+            cleaned_kwargs["link"] = sanitize_link(cleaned_kwargs["link"], 250)
+        if "description" in cleaned_kwargs:
+            cleaned_kwargs["description"] = sanitize_string(cleaned_kwargs["description"], 250)
+
         manufacturer_part, _ = ManufacturerPart.objects.get_or_create(
-            MPN=data.sku, manufacturer=manufacturer, **kwargs
+            MPN=clean_sku, manufacturer=manufacturer, **cleaned_kwargs
         )
         return manufacturer_part
 
     def import_supplier_part(self, data: SupplierProduct, **kwargs):
         """Import or update supplier part and pricing breaks in InvenTree."""
+        clean_sku = sanitize_string(data.sku, 100)
+        clean_link = sanitize_link(data.link, 250)
+
+        cleaned_kwargs = dict(kwargs)
+        if "link" in cleaned_kwargs:
+            cleaned_kwargs["link"] = sanitize_link(cleaned_kwargs["link"], 250)
+        if "description" in cleaned_kwargs:
+            cleaned_kwargs["description"] = sanitize_string(cleaned_kwargs["description"], 250)
+
         supplier_comp = self.get_supplier_company_for_product(data)
+        defaults = {"link": clean_link}
         supplier_part, _ = SupplierPart.objects.get_or_create(
-            SKU=data.sku,
+            SKU=clean_sku,
             supplier=supplier_comp,
-            **kwargs,
-            defaults={"link": data.link},
+            **cleaned_kwargs,
+            defaults=defaults,
         )
         SupplierPriceBreak.objects.filter(part=supplier_part).delete()
         SupplierPriceBreak.objects.bulk_create([
