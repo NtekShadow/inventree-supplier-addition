@@ -92,10 +92,11 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def __init__(self):
         super().__init__()
+        self._active_supplier_slug: str = ""
         self.providers: dict[str, SupplierProvider] = {
             "landefeld": LandefeldProvider(),
         }
-        # Mark SUPPLIER as optional in UI because we provide an automatic fallback
+        # Mark SUPPLIER as optional in UI because we provide automatic multi-supplier resolution
         if hasattr(self, "SETTINGS") and "SUPPLIER" in self.SETTINGS:
             self.SETTINGS["SUPPLIER"]["required"] = False
 
@@ -147,9 +148,8 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
     def supplier_company(self):
         """Return the supplier company object.
 
-        If the 'SUPPLIER' setting is configured in InvenTree, return that company.
-        Otherwise, automatically find or create 'Landefeld' as a default supplier company
-        to prevent 'Supplier setting is missing' errors.
+        Automatically finds or creates the matching supplier company in InvenTree
+        for the active provider without requiring manual configuration.
         """
         get_setting_func = getattr(self, "get_setting", None)
         if callable(get_setting_func):
@@ -162,11 +162,23 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Failed to retrieve configured supplier company: %s", exc)
 
-        # Automatic fallback: find or create Landefeld company
+        # Dynamic fallback based on active provider or first registered provider
+        supplier_slug = self._active_supplier_slug
+        if not supplier_slug or supplier_slug not in self.providers:
+            supplier_slug = next(iter(self.providers.keys())) if self.providers else "landefeld"
+
+        provider = self.providers.get(supplier_slug)
+        supplier_name = provider.name if provider else "Landefeld"
+        website = (
+            getattr(provider, "base_url", "") or getattr(provider, "website", "")
+            if provider
+            else "https://www.landefeld.de"
+        )
+
         company_obj = self._get_or_create_company(
-            name="Landefeld",
+            name=supplier_name,
             is_supplier=True,
-            website="https://www.landefeld.de",
+            website=website,
         )
         if company_obj is not None:
             return company_obj
@@ -174,8 +186,8 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         raise supplier.PartImportError("Supplier setting is missing.")
 
     def get_supplier_company_for_product(self, data: SupplierProduct):
-        """Get or create the supplier company for a specific product."""
-        # 1. If user configured a specific supplier in plugin settings, use it
+        """Get or create the supplier company for a specific product dynamically."""
+        # 1. If user configured a specific global supplier override in plugin settings, use it
         get_setting_func = getattr(self, "get_setting", None)
         if callable(get_setting_func):
             try:
@@ -187,15 +199,46 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Failed to retrieve configured supplier company: %s", exc)
 
-        # 2. Check if product brand matches a known supplier, otherwise fallback to Landefeld
-        supplier_name = "Landefeld"
-        if data.brand and data.brand.lower() == "landefeld":
-            supplier_name = "Landefeld"
+        # 2. Determine supplier name and slug from product or active provider
+        supplier_name = getattr(data, "supplier_name", "")
+        supplier_slug = getattr(data, "supplier_slug", "")
+
+        if not supplier_slug and self._active_supplier_slug:
+            supplier_slug = self._active_supplier_slug
+
+        if supplier_slug and supplier_slug in self.providers:
+            provider = self.providers[supplier_slug]
+            if not supplier_name:
+                supplier_name = provider.name
+
+        # 3. Check if product brand matches a known provider
+        if not supplier_name and data.brand:
+            for p in self.providers.values():
+                if data.brand.lower() in (p.name.lower(), p.slug.lower()):
+                    supplier_name = p.name
+                    supplier_slug = p.slug
+                    break
+
+        # 4. Fallback to first registered provider
+        if not supplier_name:
+            if self.providers:
+                first_p = next(iter(self.providers.values()))
+                supplier_name = first_p.name
+                supplier_slug = first_p.slug
+            else:
+                supplier_name = "Landefeld"
+                supplier_slug = "landefeld"
+
+        # Determine website from provider if available
+        website = ""
+        if supplier_slug in self.providers:
+            provider = self.providers[supplier_slug]
+            website = getattr(provider, "base_url", "") or getattr(provider, "website", "")
 
         company_obj = self._get_or_create_company(
             name=supplier_name,
             is_supplier=True,
-            website="https://www.landefeld.de" if supplier_name == "Landefeld" else "",
+            website=website,
         )
         if company_obj is not None:
             return company_obj
@@ -211,9 +254,15 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def get_search_results(self, supplier_slug: str, term: str) -> list[supplier.SearchResult]:
         """Search products across the specified supplier."""
+        self._active_supplier_slug = supplier_slug
         provider = self._get_provider(supplier_slug)
         results = []
         for product in provider.search(term):
+            if not getattr(product, "supplier_slug", None):
+                product.supplier_slug = provider.slug
+            if not getattr(product, "supplier_name", None):
+                product.supplier_name = provider.name
+
             existing_part = None
             if SupplierPart is not None:
                 part_match = SupplierPart.objects.filter(SKU=product.sku).first()
@@ -245,10 +294,19 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
 
     def get_import_data(self, supplier_slug: str, part_id: str):
         """Fetch product data for part import."""
+        self._active_supplier_slug = supplier_slug
+        provider = self._get_provider(supplier_slug)
         try:
-            return self._get_provider(supplier_slug).get_product(part_id)
+            product = provider.get_product(part_id)
         except LookupError as error:
             raise supplier.PartNotFoundError() from error
+
+        if not getattr(product, "supplier_slug", None):
+            product.supplier_slug = provider.slug
+        if not getattr(product, "supplier_name", None):
+            product.supplier_name = provider.name
+
+        return product
 
     def get_pricing_data(self, data: SupplierProduct) -> dict[int, tuple[float, str]]:
         """Extract pricing breaks from product data."""

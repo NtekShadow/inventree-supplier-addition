@@ -158,3 +158,95 @@ def test_supplier_company_fallback_mocked():
         mock_company_class.objects.get.assert_called_with(pk=42)
     finally:
         core.Company = orig_company
+
+
+def test_multi_supplier_automatic_company_resolution():
+    from unittest.mock import MagicMock
+    import inventree_supplier_addition.core as core
+
+    class MouserProvider:
+        slug = "mouser"
+        name = "Mouser Electronics"
+        base_url = "https://www.mouser.com"
+
+        def search(self, term: str):
+            return [
+                SupplierProduct(
+                    sku="MOU-1",
+                    name="Resistor",
+                    description="10k",
+                    price={1: (0.10, "USD")},
+                    supplier_name=self.name,
+                    supplier_slug=self.slug,
+                )
+            ]
+
+        def get_product(self, sku: str):
+            return SupplierProduct(
+                sku=sku,
+                name="Capacitor",
+                description="100nF",
+                price={1: (0.05, "USD")},
+                supplier_name=self.name,
+                supplier_slug=self.slug,
+            )
+
+    plugin = SupplierAdditionPlugin()
+    plugin.register_provider(MouserProvider())
+
+    # Mock Company table storage
+    existing_companies = {}
+
+    def mock_filter(name__iexact):
+        res = MagicMock()
+        company = existing_companies.get(name__iexact.lower())
+        res.first.return_value = company
+        return res
+
+    def mock_create(name, is_supplier=False, is_manufacturer=False, website=""):
+        mock_c = MagicMock()
+        mock_c.name = name
+        mock_c.is_supplier = is_supplier
+        mock_c.is_manufacturer = is_manufacturer
+        mock_c.website = website
+        existing_companies[name.lower()] = mock_c
+        return mock_c
+
+    mock_company_class = MagicMock()
+    mock_company_class.objects.filter.side_effect = mock_filter
+    mock_company_class.objects.create.side_effect = mock_create
+
+    orig_company = core.Company
+    try:
+        core.Company = mock_company_class
+        plugin.get_setting = MagicMock(return_value=None)
+
+        # 1. Search and import from Mouser
+        mouser_data = plugin.get_import_data("mouser", "MOU-999")
+        assert mouser_data.supplier_name == "Mouser Electronics"
+        assert mouser_data.supplier_slug == "mouser"
+
+        mouser_company = plugin.get_supplier_company_for_product(mouser_data)
+        assert mouser_company.name == "Mouser Electronics"
+        assert mouser_company.is_supplier is True
+        assert mouser_company.website == "https://www.mouser.com"
+
+        # 2. Search and import from Landefeld
+        landefeld_product = SupplierProduct(
+            sku="H300",
+            name="Fitting",
+            description="",
+            price={1: (2.0, "EUR")},
+            supplier_name="Landefeld",
+            supplier_slug="landefeld",
+        )
+        landefeld_company = plugin.get_supplier_company_for_product(landefeld_product)
+        assert landefeld_company.name == "Landefeld"
+        assert landefeld_company.is_supplier is True
+        assert landefeld_company.website == "https://www.landefeld.de"
+
+        # 3. Both distinct companies exist in database
+        assert "mouser electronics" in existing_companies
+        assert "landefeld" in existing_companies
+    finally:
+        core.Company = orig_company

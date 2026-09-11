@@ -16,6 +16,8 @@ class SupplierProduct:
     image_url: str = ""
     brand: str = ""
     parameters: dict[str, str] = field(default_factory=dict)
+    supplier_name: str = ""
+    supplier_slug: str = ""
 
 
 class SupplierProvider(Protocol):

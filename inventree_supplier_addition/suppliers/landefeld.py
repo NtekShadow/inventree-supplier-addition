@@ -89,6 +89,8 @@ class LandefeldProvider:
                         "Einheit": str(article.get("Einheit", "STK")),
                         "Vorteil": str(article.get("Vorteil", "")),
                     },
+                    supplier_name=self.name,
+                    supplier_slug=self.slug,
                 )
             )
         return products
