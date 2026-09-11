@@ -20,6 +20,14 @@ def test_plugin_metadata():
     assert plugin.LICENSE == "MIT"
     assert "DOWNLOAD_IMAGES" in plugin.SETTINGS
     assert plugin.SETTINGS["DOWNLOAD_IMAGES"]["default"] is False
+    assert "SUPPLIER_LANDEFELD" in plugin.SETTINGS
+    assert plugin.SETTINGS["SUPPLIER_LANDEFELD"]["model"] == "company.company"
+    assert "SUPPLIER" in plugin.SETTINGS
+    assert plugin.SETTINGS["SUPPLIER"]["required"] is False
+    # Ensure instance settings are populated
+    assert "DOWNLOAD_IMAGES" in plugin.settings
+    assert "SUPPLIER_LANDEFELD" in plugin.settings
+    assert "SUPPLIER" in plugin.settings
 
 
 def test_plugin_aliases():
@@ -248,5 +256,57 @@ def test_multi_supplier_automatic_company_resolution():
         # 3. Both distinct companies exist in database
         assert "mouser electronics" in existing_companies
         assert "landefeld" in existing_companies
+    finally:
+        core.Company = orig_company
+
+
+def test_supplier_setting_override_and_extensibility():
+    from unittest.mock import MagicMock
+    import inventree_supplier_addition.core as core
+
+    plugin = SupplierAdditionPlugin()
+
+    # Verify that registering a new provider dynamically registers its setting
+    class FarnellProvider:
+        slug = "farnell"
+        name = "Farnell"
+        def search(self, term: str): return []
+        def get_product(self, sku: str): raise LookupError(sku)
+
+    plugin.register_provider(FarnellProvider())
+    assert "SUPPLIER_FARNELL" in plugin.settings
+    assert plugin.settings["SUPPLIER_FARNELL"]["name"] == "Supplier (Farnell)"
+    assert plugin.settings["SUPPLIER_FARNELL"]["model"] == "company.company"
+
+    # Test that configured SUPPLIER_LANDEFELD overrides global or auto-created company
+    mock_company_class = MagicMock()
+    mock_landefeld_comp = MagicMock()
+    mock_landefeld_comp.name = "Configured Landefeld"
+    mock_company_class.objects.get.return_value = mock_landefeld_comp
+
+    orig_company = core.Company
+    try:
+        core.Company = mock_company_class
+
+        def mock_get_setting(key, **kwargs):
+            if key == "SUPPLIER_LANDEFELD":
+                return 101
+            if key == "SUPPLIER":
+                return 999
+            return None
+
+        plugin.get_setting = MagicMock(side_effect=mock_get_setting)
+
+        product = SupplierProduct(
+            sku="123",
+            name="Test",
+            description="",
+            price={1: (1.0, "EUR")},
+            supplier_slug="landefeld",
+            supplier_name="Landefeld",
+        )
+        resolved = plugin.get_supplier_company_for_product(product)
+        mock_company_class.objects.get.assert_called_with(pk=101)
+        assert resolved.name == "Configured Landefeld"
     finally:
         core.Company = orig_company
