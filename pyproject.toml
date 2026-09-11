@@ -1,0 +1,66 @@
+# This file is used to package the SupplierAddition plugin.
+#
+# - Generated from official InvenTree plugin template
+# - Ref: https://github.com/inventree/plugin-creator
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventree-supplier-addition"
+description = "Modular supplier addition and integration plugin for InvenTree"
+dynamic = ["version"]
+authors = [
+    { name = "NtekShadow" },
+]
+readme = "README.md"
+license = "MIT"
+keywords = ["inventree", "inventreeplugins", "plugin", "supplier"]
+requires-python = ">=3.9"
+dependencies = [
+    "requests",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Framework :: InvenTree",
+]
+
+[project.urls]
+Homepage = "https://github.com/NtekShadow/inventree-supplier-addition"
+Repository = "https://github.com/NtekShadow/inventree-supplier-addition"
+
+[project.entry-points."inventree_plugins"]
+SupplierAddition = "inventree_supplier_addition.core:SupplierAdditionPlugin"
+SupplierAdditionPlugin = "inventree_supplier_addition.core:SupplierAdditionPlugin"
+SupplierIntegrationPlugin = "inventree_supplier_addition.core:SupplierAdditionPlugin"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.dynamic]
+version = {attr = "inventree_supplier_addition.PLUGIN_VERSION"}
+
+[tool.ruff]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "test.py",
+    "tests",
+    "venv",
+    "env",
+    ".venv",
+    ".env",
+]
+
+src = ["inventree_supplier_addition"]
+
+[tool.ruff.lint]
+ignore = [
+    "I001",
+    "PIE790",
+    "RUF012",
+]
