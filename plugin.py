@@ -12,8 +12,9 @@ from suppliers import LandefeldProvider
 class SupplierIntegrationPlugin(SupplierMixin, InvenTreePlugin):
     """InvenTree adapter for supplier providers."""
 
-    NAME = 'SupplierIntegrationPlugin'
-    SLUG = 'supplierintegration'
+    NAME = 'Supplier Integration'
+    # Keep the original slug so InvenTree updates the existing installation.
+    SLUG = 'landefeldsupplier'
     TITLE = 'Supplier Integration'
     VERSION = '0.1.0'
 
