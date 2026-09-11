@@ -2,6 +2,15 @@
 
 Das Plugin trennt die InvenTree-Anbindung von den APIs einzelner Lieferanten.
 
+Installation in InvenTree:
+
+```text
+https://github.com/NtekShadow/inventree-supplier-addition.git
+```
+
+Das Repository folgt dem InvenTree-Plugin-Format mit `setup.py` und einem
+Root-Einstiegspunkt `plugin.py`.
+
 ## Lieferanten hinzufuegen
 
 Ein Lieferant implementiert `SupplierProvider` aus `supplier_models.py` und liefert
