@@ -78,7 +78,7 @@ for mod in ["plugin", "supplier_models"]:
 
 setup(
     name=detect_package_name(),
-    version="0.2.0",
+    version="0.2.1",
     description="Modular supplier addition and integration plugin for InvenTree",
     long_description=readme,
     long_description_content_type="text/markdown",

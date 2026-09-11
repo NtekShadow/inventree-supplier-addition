@@ -514,14 +514,25 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             name=brand_name,
             is_manufacturer=True,
         )
+        clean_link = sanitize_link(data.link, 250)
+        clean_desc = sanitize_string(data.description, 250)
+
         cleaned_kwargs = dict(kwargs)
         if "link" in cleaned_kwargs:
             cleaned_kwargs["link"] = sanitize_link(cleaned_kwargs["link"], 250)
         if "description" in cleaned_kwargs:
             cleaned_kwargs["description"] = sanitize_string(cleaned_kwargs["description"], 250)
 
+        defaults = {
+            "link": clean_link,
+            "description": clean_desc,
+        }
+
         manufacturer_part, _ = ManufacturerPart.objects.get_or_create(
-            MPN=clean_sku, manufacturer=manufacturer, **cleaned_kwargs
+            MPN=clean_sku,
+            manufacturer=manufacturer,
+            defaults=defaults,
+            **cleaned_kwargs,
         )
         return manufacturer_part
 
@@ -529,6 +540,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         """Import or update supplier part and pricing breaks in InvenTree."""
         clean_sku = sanitize_string(data.sku, 100)
         clean_link = sanitize_link(data.link, 250)
+        clean_desc = sanitize_string(data.description, 250)
 
         cleaned_kwargs = dict(kwargs)
         if "link" in cleaned_kwargs:
@@ -537,12 +549,15 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             cleaned_kwargs["description"] = sanitize_string(cleaned_kwargs["description"], 250)
 
         supplier_comp = self.get_supplier_company_for_product(data)
-        defaults = {"link": clean_link}
+        defaults = {
+            "link": clean_link,
+            "description": clean_desc,
+        }
         supplier_part, _ = SupplierPart.objects.get_or_create(
             SKU=clean_sku,
             supplier=supplier_comp,
-            **cleaned_kwargs,
             defaults=defaults,
+            **cleaned_kwargs,
         )
         SupplierPriceBreak.objects.filter(part=supplier_part).delete()
         SupplierPriceBreak.objects.bulk_create([
