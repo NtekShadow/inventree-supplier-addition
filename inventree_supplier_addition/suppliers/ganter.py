@@ -1,8 +1,10 @@
 """Ganter Norm supplier provider implementation."""
 
 import logging
+import math
 import re
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import urljoin
 
@@ -61,6 +63,32 @@ class GanterProvider:
         t_clean = re.sub(r"\s+[a-z]\s*\d*(?:\s*\([^)]*\))?$", "", t, flags=re.IGNORECASE).strip()
         t_clean = re.sub(r"\s*\([^)]*\)$", "", t_clean).strip()
         return t_clean if t_clean else t
+
+    def _calculate_price_breaks(
+        self, base_price: float, currency: str = "EUR"
+    ) -> dict[int, tuple[float, str]]:
+        """Calculate volume price breaks based on Ganter Norm's official Rabattstaffel.
+
+        Ganter Norm Rabattstaffel (Auftragswert netto je Bestellung):
+        - ab 200,00 €: 10 % Rabatt
+        - ab 300,00 €: 20 % Rabatt
+        - ab 400,00 €: 30 % Rabatt
+        """
+        if base_price <= 0:
+            return {}
+
+        breaks: dict[int, tuple[float, str]] = {1: (round(base_price, 2), currency)}
+
+        q_10 = max(2, math.ceil(200.0 / base_price))
+        breaks[q_10] = (round(base_price * 0.90, 2), currency)
+
+        q_20 = max(q_10 + 1, math.ceil(300.0 / base_price))
+        breaks[q_20] = (round(base_price * 0.80, 2), currency)
+
+        q_30 = max(q_20 + 1, math.ceil(400.0 / base_price))
+        breaks[q_30] = (round(base_price * 0.70, 2), currency)
+
+        return breaks
 
     def _parse_config_dimensions(self, soup: BeautifulSoup) -> dict[str, list[str]]:
         """Extract configuration dimensions and their selectable options from the page."""
@@ -295,10 +323,82 @@ class GanterProvider:
                     ]
                     if avail:
                         parameters["Verfügbarkeit"] = "; ".join(avail)
+
+                if price_val > 0:
+                    parameters["Rabattstaffel"] = "ab 200 €: 10 %, ab 300 €: 20 %, ab 400 €: 30 %"
+                    parameters["Mindermengenzuschlag"] = "< 25 €: 15,00 €, 25-50 €: 10,00 €"
+
         except Exception as exc:  # noqa: BLE001
             logger.debug("Failed to fetch Ganter price info for %s: %s", sku, exc)
 
         return price_val, currency, parameters
+
+    def _extract_variants_from_page(self, soup: BeautifulSoup, base_norm: str) -> list[str]:
+        """Extract all variant SKUs from hidden spans or product table."""
+        norm_clean = re.sub(r"\s+", "", base_norm).lower()
+
+        # 1. Hidden spans (GN 300, DIN 508, GN 717, GN 615, etc.)
+        spans = [
+            s.get_text(strip=True)
+            for s in soup.find_all("span", style=lambda s: s and "display:none" in s)
+        ]
+        var_spans = [
+            s for s in spans if re.sub(r"\s+", "", s).lower().startswith(norm_clean)
+        ]
+        if len(var_spans) > 2:
+            return var_spans
+
+        # 2. Priority table (used on GN 7802 and similar modular norms)
+        table = soup.find("table", class_="priority-table")
+        if table:
+            rows = table.find_all("tr")
+            if len(rows) >= 3:
+                headers = [
+                    re.sub(r"\s+", " ", th.get_text(strip=True))
+                    for th in rows[0].find_all("th")
+                ]
+                color_cols: list[tuple[int, str]] = []
+                for idx, h in enumerate(headers):
+                    for code in (
+                        "GR", "VDB", "SW", "SZ", "OS", "RS", "SR", "CR", "NI", "ST", "BL"
+                    ):
+                        parts = re.split(r"[\s\(\)/]+", h)
+                        if code in parts or h.endswith(code) or h == code:
+                            color_cols.append((idx, code))
+                            break
+
+                variants: list[str] = []
+                if color_cols:
+                    for r in rows[2:]:
+                        cells = [td.get_text(strip=True) for td in r.find_all(["td", "th"])]
+                        if len(cells) < len(headers):
+                            continue
+                        dim1 = cells[0].replace(".", ",")
+                        for col_idx, color_code in color_cols:
+                            val = cells[col_idx]
+                            if val and val not in ("-", "—"):
+                                variants.append(f"{base_norm}-{dim1}-{val}-{color_code}")
+                else:
+                    # Single color from fieldsets
+                    dim_options = self._parse_config_dimensions(soup)
+                    color_labels = dim_options.get("Farbe", [])
+                    default_color = color_labels[0].split(" - ")[0].strip() if color_labels else ""
+                    for r in rows[2:]:
+                        cells = [td.get_text(strip=True) for td in r.find_all(["td", "th"])]
+                        if len(cells) < 2:
+                            continue
+                        dim1 = cells[0].replace(".", ",")
+                        dim2 = cells[1]
+                        if dim2 and dim2 not in ("-", "—"):
+                            if default_color:
+                                variants.append(f"{base_norm}-{dim1}-{dim2}-{default_color}")
+                            else:
+                                variants.append(f"{base_norm}-{dim1}-{dim2}")
+
+                if variants:
+                    return variants
+
+        return var_spans
 
     def _fetch_product_from_page(self, url: str, sku: str) -> SupplierProduct:
         """Fetch and parse a product detail page from Ganter Norm."""
@@ -356,16 +456,15 @@ class GanterProvider:
         if c_meta and c_meta.get("content"):
             currency = c_meta["content"]
 
-        # If clean_sku is a configured article code, fetch exact price and tech data
+        # Fetch exact net price, stock, weight, and Rabattstaffel
         exact_price, exact_cur, api_params = self._fetch_price_and_params(clean_sku)
-        if exact_price > 0:
-            price_val = exact_price
-            currency = exact_cur
-        parameters.update(api_params)
-
         price_dict: dict[int, tuple[float, str]] = {}
-        if price_val > 0:
-            price_dict[1] = (price_val, currency)
+        if exact_price > 0:
+            price_dict = self._calculate_price_breaks(exact_price, exact_cur)
+        elif price_val > 0:
+            price_dict = self._calculate_price_breaks(price_val, currency)
+
+        parameters.update(api_params)
 
         product = SupplierProduct(
             sku=clean_sku,
@@ -407,11 +506,23 @@ class GanterProvider:
             h for h in hits if self._normalize_token(h.get("norm", "")).startswith(norm_clean)
         ]
         if not matching_hits:
-            matching_hits = hits[:3]
+            matching_hits = hits[:6]
+
+        # Sort series pages: prioritize pages that match query tokens in title (e.g. Modul 1,5)
+        def _hit_score(hit: dict[str, Any]) -> int:
+            norm_title = hit.get("norm", "").lower().replace(",", ".")
+            score = 0
+            for t in tokens:
+                t_norm = t.replace(",", ".")
+                if t_norm in norm_title:
+                    score += 1
+            return -score
+
+        matching_hits.sort(key=_hit_score)
 
         matched_variants: list[SupplierProduct] = []
 
-        for hit in matching_hits[:3]:
+        for hit in matching_hits[:4]:
             url = hit.get("url")
             if not url:
                 continue
@@ -427,13 +538,16 @@ class GanterProvider:
             desc_el = soup.find(itemprop="description")
             desc = desc_el.get_text(" ", strip=True) if desc_el else ""
 
-            spans = soup.find_all("span", style=lambda s: s and "display:none" in s)
-            for s in spans:
-                var_sku = s.get_text(strip=True)
+            all_variants = self._extract_variants_from_page(soup, base_norm)
+            for var_sku in all_variants:
                 if not self._normalize_token(var_sku).startswith(norm_clean):
                     continue
 
-                sku_parts = [self._normalize_token(p) for p in re.split(r"[\s\-]+", var_sku) if p.strip()]
+                sku_parts = [
+                    self._normalize_token(p)
+                    for p in re.split(r"[\s\-]+", var_sku)
+                    if p.strip()
+                ]
 
                 all_matched = True
                 for tok in tokens:
@@ -468,13 +582,20 @@ class GanterProvider:
             key=lambda p: abs(len(p.sku.split("-")) - target_token_count)
         )
 
-        # If very few results, fetch live price and availability immediately
-        if len(matched_variants) <= 2:
-            for p in matched_variants:
-                p_val, p_cur, p_params = self._fetch_price_and_params(p.sku)
+        # Enrich top variants with exact live prices and Rabattstaffel in parallel
+        variants_to_price = matched_variants[:12]
+        if variants_to_price:
+            with ThreadPoolExecutor(max_workers=min(6, len(variants_to_price))) as executor:
+                price_results = list(
+                    executor.map(
+                        lambda p: (p, self._fetch_price_and_params(p.sku)),
+                        variants_to_price,
+                    )
+                )
+            for prod, (p_val, p_cur, p_params) in price_results:
                 if p_val > 0:
-                    p.price = {1: (p_val, p_cur)}
-                p.parameters.update(p_params)
+                    prod.price = self._calculate_price_breaks(p_val, p_cur)
+                prod.parameters.update(p_params)
 
         return matched_variants[:30]
 
@@ -501,11 +622,9 @@ class GanterProvider:
             desc_el = soup.find(itemprop="description")
             desc = desc_el.get_text(" ", strip=True) if desc_el else ""
 
-            spans = soup.find_all("span", style=lambda s: s and "display:none" in s)
-            for s in spans:
-                var_sku = s.get_text(strip=True)
+            all_variants = self._extract_variants_from_page(soup, base_norm)
+            for var_sku in all_variants:
                 parts = var_sku.split("-")
-                # Group by primary size/thread key to get diverse options
                 group_key = parts[2] if len(parts) >= 3 else (parts[1] if len(parts) >= 2 else var_sku)
                 if group_key in seen_keys:
                     continue
@@ -526,11 +645,25 @@ class GanterProvider:
                 )
                 self._cache[var_sku] = v_prod
                 rep_variants.append(v_prod)
-                if len(rep_variants) >= 12:
+                if len(rep_variants) >= 10:
                     break
 
-            if len(rep_variants) >= 12:
+            if len(rep_variants) >= 10:
                 break
+
+        # Enrich representative variants with exact prices and Rabattstaffel in parallel
+        if rep_variants:
+            with ThreadPoolExecutor(max_workers=min(6, len(rep_variants))) as executor:
+                price_results = list(
+                    executor.map(
+                        lambda p: (p, self._fetch_price_and_params(p.sku)),
+                        rep_variants,
+                    )
+                )
+            for prod, (p_val, p_cur, p_params) in price_results:
+                if p_val > 0:
+                    prod.price = self._calculate_price_breaks(p_val, p_cur)
+                prod.parameters.update(p_params)
 
         return rep_variants
 
@@ -540,17 +673,27 @@ class GanterProvider:
         if not clean_term:
             return []
 
-        # Return cached result if exact match is already known
-        if clean_term in self._cache:
+        # Return cached result if exact match is already known and priced
+        if clean_term in self._cache and self._cache[clean_term].price:
             return [self._cache[clean_term]]
 
         base_norm, tokens = self._parse_search_query(clean_term)
 
         # 1. Check if term is an exact SKU via schnell-suche redirect
         hyphen_candidate = f"{base_norm}-{'-'.join(tokens).upper()}" if tokens else ""
-        for candidate in (clean_term, hyphen_candidate):
-            if not candidate:
-                continue
+        candidates = [clean_term]
+        if hyphen_candidate and hyphen_candidate != clean_term:
+            candidates.append(hyphen_candidate)
+        # Also test with German decimal comma replacement
+        comma_candidate = clean_term.replace(".", ",")
+        if comma_candidate not in candidates:
+            candidates.append(comma_candidate)
+        if hyphen_candidate:
+            hyphen_comma = hyphen_candidate.replace(".", ",")
+            if hyphen_comma not in candidates:
+                candidates.append(hyphen_comma)
+
+        for candidate in candidates:
             try:
                 r = self.session.get(
                     f"{self.base_url}/de/produkte/schnell-suche",
@@ -561,13 +704,17 @@ class GanterProvider:
                 if r.status_code in (301, 302, 303, 307, 308):
                     redirect_loc = r.headers.get("Location")
                     if redirect_loc:
+                        norm_clean = re.sub(r"[\s\-]+", "", base_norm).lower()
+                        loc_clean = re.sub(r"[\s\-]+", "", redirect_loc).lower()
+                        if base_norm and norm_clean not in loc_clean:
+                            continue
                         product = self._fetch_product_from_page(redirect_loc, sku=candidate)
                         self._cache[clean_term] = product
                         return [product]
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Ganter schnell-suche redirect check failed for %s: %s", candidate, exc)
 
-        # 2. Multi-token configuration search (e.g. "GN 300 M8", "DIN 508 14 M12")
+        # 2. Multi-token configuration search (e.g. "GN 300 M8", "DIN 508 14 M12", "GN 7802 1,5 12")
         if tokens:
             variant_products = self._search_variants_by_tokens(base_norm, tokens, clean_term)
             if variant_products:
@@ -632,7 +779,7 @@ class GanterProvider:
 
             # For base norm searches, also attach representative configured variants
             if parsed_items and parsed_items[0][0].lower() == base_norm.lower():
-                rep_variants = self._extract_representative_variants(parsed_items[:2], base_norm)
+                rep_variants = self._extract_representative_variants(parsed_items[:3], base_norm)
                 products.extend(rep_variants)
 
             return products
@@ -650,7 +797,6 @@ class GanterProvider:
             prod = self._cache[clean_sku]
             if prod.price and any(p[0] > 0 for p in prod.price.values()) and prod.parameters.get("Gewicht"):
                 return prod
-            # If cached product has a page link, fetch full details from its page
             if prod.link:
                 try:
                     full_prod = self._fetch_product_from_page(prod.link, sku=prod.sku)
@@ -662,9 +808,18 @@ class GanterProvider:
         # 2. Try schnell-suche redirect
         base_norm, tokens = self._parse_search_query(clean_sku)
         hyphen_candidate = f"{base_norm}-{'-'.join(tokens).upper()}" if tokens else ""
-        for candidate in (clean_sku, hyphen_candidate):
-            if not candidate:
-                continue
+        candidates = [clean_sku]
+        if hyphen_candidate and hyphen_candidate != clean_sku:
+            candidates.append(hyphen_candidate)
+        comma_sku = clean_sku.replace(".", ",")
+        if comma_sku not in candidates:
+            candidates.append(comma_sku)
+        if hyphen_candidate:
+            hyphen_comma = hyphen_candidate.replace(".", ",")
+            if hyphen_comma not in candidates:
+                candidates.append(hyphen_comma)
+
+        for candidate in candidates:
             try:
                 r = self.session.get(
                     f"{self.base_url}/de/produkte/schnell-suche",
@@ -675,6 +830,10 @@ class GanterProvider:
                 if r.status_code in (301, 302, 303, 307, 308):
                     redirect_loc = r.headers.get("Location")
                     if redirect_loc:
+                        norm_clean = re.sub(r"[\s\-]+", "", base_norm).lower()
+                        loc_clean = re.sub(r"[\s\-]+", "", redirect_loc).lower()
+                        if base_norm and norm_clean not in loc_clean:
+                            continue
                         return self._fetch_product_from_page(redirect_loc, sku=candidate)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Ganter get_product schnell-suche redirect check failed for %s: %s", candidate, exc)

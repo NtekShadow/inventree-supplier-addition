@@ -160,9 +160,13 @@ def test_search_exact_redirect():
         prod = results[0]
         assert prod.sku == "GN 300-30-M3-SW"
         assert prod.name == "GN 300-30-M3-SW Verstellbare Klemmhebel"
-        assert prod.price == {1: (3.88, "EUR")}
+        assert prod.price[1] == (3.88, "EUR")
+        assert prod.price[52] == (3.49, "EUR")
+        assert prod.price[78] == (3.10, "EUR")
+        assert prod.price[104] == (2.72, "EUR")
         assert prod.parameters["Gewicht"] == "0,026 kg"
         assert prod.parameters["Norm"] == "GN 300"
+        assert "Rabattstaffel" in prod.parameters
         assert "gn300-SW-schwarz.jpg" in prod.image_url
 
 
@@ -309,4 +313,74 @@ def test_search_variants_by_tokens():
         assert m8_sw.parameters["Grifflänge"] == "63 mm"
         assert m8_sw.parameters["Anschlussgewinde"] == "M 8"
         assert m8_sw.parameters["Farbe"] == "SW - schwarz"
+
+
+def test_calculate_price_breaks():
+    provider = GanterProvider()
+
+    # Base price 4.58 EUR (like GN 7802-1,5-12-GR)
+    breaks = provider._calculate_price_breaks(4.58, "EUR")
+    assert breaks[1] == (4.58, "EUR")
+    # 200 / 4.58 = 43.66 -> 44 pcs (10% discount: 4.12 EUR)
+    assert breaks[44] == (4.12, "EUR")
+    # 300 / 4.58 = 65.50 -> 66 pcs (20% discount: 3.66 EUR)
+    assert breaks[66] == (3.66, "EUR")
+    # 400 / 4.58 = 87.33 -> 88 pcs (30% discount: 3.21 EUR)
+    assert breaks[88] == (3.21, "EUR")
+
+    # Zero or negative price returns empty
+    assert provider._calculate_price_breaks(0.0) == {}
+
+
+def test_extract_variants_from_priority_table():
+    from bs4 import BeautifulSoup
+
+    provider = GanterProvider()
+
+    html = """
+    <html>
+        <table class="priority-table">
+            <tr>
+                <th>Modul</th>
+                <th>z Zähnezahl GR</th>
+                <th>VDB</th>
+                <th>b1 Zahnbreite</th>
+            </tr>
+            <tr>
+                <td>Filter</td>
+                <td>Filter</td>
+                <td>Filter</td>
+                <td>Filter</td>
+            </tr>
+            <tr>
+                <td>1.5</td>
+                <td>12</td>
+                <td>12</td>
+                <td>17</td>
+            </tr>
+            <tr>
+                <td>1.5</td>
+                <td>14</td>
+                <td>-</td>
+                <td>17</td>
+            </tr>
+            <tr>
+                <td>1.5</td>
+                <td>15</td>
+                <td>15</td>
+                <td>17</td>
+            </tr>
+        </table>
+    </html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    variants = provider._extract_variants_from_page(soup, "GN 7802")
+    assert len(variants) == 5
+    assert "GN 7802-1,5-12-GR" in variants
+    assert "GN 7802-1,5-12-VDB" in variants
+    assert "GN 7802-1,5-14-GR" in variants
+    assert "GN 7802-1,5-14-VDB" not in variants
+    assert "GN 7802-1,5-15-GR" in variants
+    assert "GN 7802-1,5-15-VDB" in variants
+
 
