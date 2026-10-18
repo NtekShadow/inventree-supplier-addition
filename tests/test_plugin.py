@@ -26,6 +26,7 @@ def test_plugin_metadata():
     assert "SUPPLIER_GANTER" in plugin.SETTINGS
     assert plugin.SETTINGS["SUPPLIER_GANTER"]["model"] == "company.company"
     assert "SUPPLIER_IGUS" in plugin.SETTINGS
+    assert "SUPPLIER_NORELEM" in plugin.SETTINGS
     assert "SUPPLIER" in plugin.SETTINGS
     assert plugin.SETTINGS["SUPPLIER"]["required"] is False
     # Ensure instance settings are populated
@@ -56,6 +57,7 @@ def test_plugin_providers():
     assert "landefeld" in slugs
     assert "ganter" in slugs
     assert "igus" in slugs
+    assert "norelem" in slugs
 
     provider_landefeld = plugin._get_provider("landefeld")
     assert provider_landefeld.name == "Landefeld"
@@ -462,3 +464,56 @@ def test_import_part_and_supplier_part_sanitization():
         core.SupplierPriceBreak = orig_spb
         core.Company = orig_comp
 
+
+def test_long_image_url_is_kept():
+    plugin = SupplierAdditionPlugin()
+    image_url = "https://www.norelem.de/medias/Zoom-Default-03080.png?context=" + "x" * 230
+    provider = MagicMock()
+    provider.slug = "norelem"
+    provider.name = "norelem"
+    provider.get_product.return_value = SupplierProduct(
+        sku="03080-10", name="Exzenteranschlag", description="", price={}, image_url=image_url
+    )
+    plugin.providers["norelem"] = provider
+
+    product = plugin.get_import_data("norelem", "03080-10")
+    assert product.image_url == image_url
+
+
+def test_import_part_uses_provider_image_download():
+    from inventree_supplier_addition import core
+
+    plugin = SupplierAdditionPlugin()
+    provider = MagicMock()
+    provider.download_image.return_value = (MagicMock(), "PNG")
+    plugin.providers["norelem"] = provider
+    plugin.get_setting = lambda key, *args, **kwargs: key == "DOWNLOAD_IMAGES"
+    plugin.download_image = MagicMock()
+
+    product = SupplierProduct(
+        sku="03080-10",
+        name="Exzenteranschlag",
+        description="Exzenteranschlag",
+        price={},
+        image_url="https://www.norelem.de/medias/x.png?context=abc",
+        supplier_slug="norelem",
+    )
+
+    mock_part_class = MagicMock()
+    mock_part_instance = MagicMock(pk=7)
+    mock_part_class.objects.get_or_create.return_value = (mock_part_instance, True)
+
+    orig_part = core.Part
+    orig_settings = core.settings
+    try:
+        core.Part = mock_part_class
+        core.settings = MagicMock(TESTING=False)
+        plugin.import_part(product)
+    finally:
+        core.Part = orig_part
+        core.settings = orig_settings
+
+    provider.download_image.assert_called_once_with(product.image_url)
+    plugin.download_image.assert_not_called()
+    mock_part_instance.image.save.assert_called_once()
+    assert mock_part_instance.image.save.call_args.args[0] == "part_7_image.png"

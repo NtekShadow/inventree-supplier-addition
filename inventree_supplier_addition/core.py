@@ -81,7 +81,10 @@ logger = logging.getLogger("inventree")
 
 from . import PLUGIN_VERSION
 from .models import SupplierProduct, SupplierProvider
-from .suppliers import GanterProvider, IgusProvider, LandefeldProvider
+from .suppliers import GanterProvider, IgusProvider, LandefeldProvider, NorelemProvider
+
+# Image URLs are only displayed and downloaded, not stored, so they may exceed the 250 char field limit
+IMAGE_URL_MAX_LENGTH = 2000
 
 
 def sanitize_link(link: str | None, max_len: int = 250) -> str:
@@ -166,6 +169,13 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             "model_filters": {"is_supplier": True},
             "required": False,
         },
+        "SUPPLIER_NORELEM": {
+            "name": "Supplier (norelem)",
+            "description": "InvenTree supplier company for norelem parts",
+            "model": "company.company",
+            "model_filters": {"is_supplier": True},
+            "required": False,
+        },
         "SUPPLIER": {
             "name": "Default Supplier (Fallback)",
             "description": "Fallback InvenTree supplier company if a supplier-specific setting is not set",
@@ -191,6 +201,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         self.register_provider(LandefeldProvider())
         self.register_provider(GanterProvider())
         self.register_provider(IgusProvider())
+        self.register_provider(NorelemProvider())
 
         # If SupplierMixin.__init__ forced SUPPLIER to required: True, relax it
         if "SUPPLIER" in self.settings:
@@ -420,7 +431,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
                     exact=product.sku.lower() == term.lower(),
                     price=self._format_price(product),
                     link=sanitize_link(product.link, 250),
-                    image_url=sanitize_link(product.image_url, 250),
+                    image_url=sanitize_link(product.image_url, IMAGE_URL_MAX_LENGTH),
                     existing_part=existing_part,
                 )
             )
@@ -454,7 +465,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         product.name = sanitize_string(product.name, 100)
         product.description = sanitize_string(product.description, 250)
         product.link = sanitize_link(product.link, 250)
-        product.image_url = sanitize_link(product.image_url, 250)
+        product.image_url = sanitize_link(product.image_url, IMAGE_URL_MAX_LENGTH)
 
         return product
 
@@ -509,7 +520,13 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             and not getattr(settings, "TESTING", False)
             and download_images
         ):
-            image_file, image_format = self.download_image(data.image_url)
+            # Providers behind bot protection (e.g. norelem) download images with their own session
+            provider = self.providers.get(getattr(data, "supplier_slug", "") or self._active_supplier_slug)
+            provider_download = getattr(provider, "download_image", None)
+            if callable(provider_download):
+                image_file, image_format = provider_download(data.image_url)
+            else:
+                image_file, image_format = self.download_image(data.image_url)
             if image_file:
                 part.image.save(f"part_{part.pk}_image.{image_format.lower()}", image_file)
         return part

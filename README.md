@@ -22,6 +22,10 @@ Bereits integrierte Lieferanten:
   - Suche nach igus-Artikelnummern über den igus.de-Webshop (z. B. `RJUM-01-10`, `GFM-1012-07`, `CF5.05.07`, `EFOM-10`)
   - Importiert Bild, Link, vollständige Preisstaffel (Stück- bzw. Meterpreise) und Lieferzeit
   - Übernimmt die technischen Daten des Artikels als Parameter (Abmessungen, Toleranzen, Lasten, Temperaturen usw.)
+- **norelem** (`NorelemProvider`)
+  - Suche über den norelem.de-Webshop: exakte Artikelnummer (z. B. `03080-10`), Artikelfamilie (z. B. `03080` → alle Varianten) oder Freitext (z. B. `Kugelknopf`)
+  - Importiert Bild, Link, Nettopreis/Preisstaffel und die Artikeldaten als Parameter (Abmessungen, Werkstoff, Ausführung, RoHS/REACH usw.)
+  - Bilder werden über die Provider-eigene Session geladen, da das norelem-CDN den Standard-Downloader blockiert
 
 ---
 
@@ -60,6 +64,7 @@ In den Plugin-Einstellungen im InvenTree Admin Center stehen folgende Optionen z
 | `SUPPLIER_LANDEFELD` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für Landefeld-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
 | `SUPPLIER_GANTER` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für Ganter-Norm-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
 | `SUPPLIER_IGUS` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für igus-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
+| `SUPPLIER_NORELEM` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für norelem-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
 | `SUPPLIER` | Company (Supplier) | *(Automatisch)* | Optionaler globaler Fallback-Lieferant, falls kein anbieterspezifisches Setting konfiguriert ist. |
 
 > **Modulares Multi-Lieferanten-Management:**  
@@ -83,11 +88,13 @@ inventree-supplier-addition/
 │       ├── __init__.py
 │       ├── ganter.py         # Ganter Norm Provider-Implementierung
 │       ├── igus.py           # igus Provider-Implementierung
-│       └── landefeld.py      # Landefeld Provider-Implementierung
+│       ├── landefeld.py      # Landefeld Provider-Implementierung
+│       └── norelem.py        # norelem Provider-Implementierung
 ├── tests/
 │   ├── test_ganter.py        # Tests für Ganter Norm
 │   ├── test_igus.py          # Tests für igus
 │   ├── test_landefeld.py     # Tests für Landefeld
+│   ├── test_norelem.py       # Tests für norelem
 │   └── test_plugin.py        # Tests für das Plugin
 ├── .github/workflows/
 │   ├── ci.yaml               # CI-Pipeline (Ruff, Pytest, Build)
