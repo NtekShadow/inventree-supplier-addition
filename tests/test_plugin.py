@@ -25,6 +25,7 @@ def test_plugin_metadata():
     assert plugin.SETTINGS["SUPPLIER_LANDEFELD"]["model"] == "company.company"
     assert "SUPPLIER_GANTER" in plugin.SETTINGS
     assert plugin.SETTINGS["SUPPLIER_GANTER"]["model"] == "company.company"
+    assert "SUPPLIER_IGUS" in plugin.SETTINGS
     assert "SUPPLIER" in plugin.SETTINGS
     assert plugin.SETTINGS["SUPPLIER"]["required"] is False
     # Ensure instance settings are populated
@@ -54,6 +55,7 @@ def test_plugin_providers():
     slugs = [s.slug for s in suppliers]
     assert "landefeld" in slugs
     assert "ganter" in slugs
+    assert "igus" in slugs
 
     provider_landefeld = plugin._get_provider("landefeld")
     assert provider_landefeld.name == "Landefeld"

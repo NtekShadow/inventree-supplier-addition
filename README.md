@@ -18,6 +18,10 @@ Bereits integrierte Lieferanten:
   - Unterstützt konfigurierte Variantensuche direkt im InvenTree-Suchfeld (z. B. `GN 300 M8`, `GN 300 63 M8 SW`, `DIN 508 14 M12`, `GN 717 5 M8`)
   - Parst technische Parameter aus der Artikelauswahl (Grifflänge, Gewinde, Nutbreite, Werkstoff, Farbe usw.)
   - Ruft tagesaktuelle Nettopreise, Gewichte, Zolltarifnummern und Lieferverfügbarkeiten ab
+- **igus** (`IgusProvider`)
+  - Suche nach igus-Artikelnummern über den igus.de-Webshop (z. B. `RJUM-01-10`, `GFM-1012-07`, `CF5.05.07`, `EFOM-10`)
+  - Importiert Bild, Link, vollständige Preisstaffel (Stück- bzw. Meterpreise) und Lieferzeit
+  - Übernimmt die technischen Daten des Artikels als Parameter (Abmessungen, Toleranzen, Lasten, Temperaturen usw.)
 
 ---
 
@@ -55,6 +59,7 @@ In den Plugin-Einstellungen im InvenTree Admin Center stehen folgende Optionen z
 | `DOWNLOAD_IMAGES` | Boolean | `False` | Ermöglicht das automatische Herunterladen von Bauteilbildern beim Import |
 | `SUPPLIER_LANDEFELD` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für Landefeld-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
 | `SUPPLIER_GANTER` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für Ganter-Norm-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
+| `SUPPLIER_IGUS` | Company (Supplier) | *(Automatisch)* | InvenTree-Lieferantenfirma für igus-Bauteile. Kann manuell gewählt werden oder wird automatisch ermittelt/angelegt. |
 | `SUPPLIER` | Company (Supplier) | *(Automatisch)* | Optionaler globaler Fallback-Lieferant, falls kein anbieterspezifisches Setting konfiguriert ist. |
 
 > **Modulares Multi-Lieferanten-Management:**  
@@ -77,9 +82,11 @@ inventree-supplier-addition/
 │   └── suppliers/
 │       ├── __init__.py
 │       ├── ganter.py         # Ganter Norm Provider-Implementierung
+│       ├── igus.py           # igus Provider-Implementierung
 │       └── landefeld.py      # Landefeld Provider-Implementierung
 ├── tests/
 │   ├── test_ganter.py        # Tests für Ganter Norm
+│   ├── test_igus.py          # Tests für igus
 │   ├── test_landefeld.py     # Tests für Landefeld
 │   └── test_plugin.py        # Tests für das Plugin
 ├── .github/workflows/

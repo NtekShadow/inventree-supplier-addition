@@ -81,7 +81,7 @@ logger = logging.getLogger("inventree")
 
 from . import PLUGIN_VERSION
 from .models import SupplierProduct, SupplierProvider
-from .suppliers import GanterProvider, LandefeldProvider
+from .suppliers import GanterProvider, IgusProvider, LandefeldProvider
 
 
 def sanitize_link(link: str | None, max_len: int = 250) -> str:
@@ -159,6 +159,13 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
             "model_filters": {"is_supplier": True},
             "required": False,
         },
+        "SUPPLIER_IGUS": {
+            "name": "Supplier (igus)",
+            "description": "InvenTree supplier company for igus parts",
+            "model": "company.company",
+            "model_filters": {"is_supplier": True},
+            "required": False,
+        },
         "SUPPLIER": {
             "name": "Default Supplier (Fallback)",
             "description": "Fallback InvenTree supplier company if a supplier-specific setting is not set",
@@ -183,6 +190,7 @@ class SupplierAdditionPlugin(SupplierMixin, SettingsMixin, InvenTreePlugin):
         # Register default providers (this also registers provider-specific settings)
         self.register_provider(LandefeldProvider())
         self.register_provider(GanterProvider())
+        self.register_provider(IgusProvider())
 
         # If SupplierMixin.__init__ forced SUPPLIER to required: True, relax it
         if "SUPPLIER" in self.settings:
