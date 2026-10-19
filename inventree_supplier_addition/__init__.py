@@ -1,3 +1,3 @@
 """InvenTree Supplier Addition Plugin."""
 
-PLUGIN_VERSION = "0.2.2"
+PLUGIN_VERSION = "0.2.3"

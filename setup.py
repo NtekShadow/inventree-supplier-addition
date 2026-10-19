@@ -78,7 +78,7 @@ for mod in ["plugin", "supplier_models"]:
 
 setup(
     name=detect_package_name(),
-    version="0.2.2",
+    version="0.2.3",
     description="Modular supplier addition and integration plugin for InvenTree",
     long_description=readme,
     long_description_content_type="text/markdown",
@@ -91,10 +91,7 @@ setup(
     python_requires=">=3.9",
     entry_points={
         "inventree_plugins": [
-            "SupplierIntegrationPlugin = inventree_supplier_addition.core:SupplierIntegrationPlugin",
             "SupplierAdditionPlugin = inventree_supplier_addition.core:SupplierAdditionPlugin",
-            "SupplierIntegration = inventree_supplier_addition.core:SupplierIntegrationPlugin",
-            "SupplierAddition = inventree_supplier_addition.core:SupplierAdditionPlugin",
         ]
     },
 )
